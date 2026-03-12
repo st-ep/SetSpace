@@ -1,0 +1,85 @@
+{
+  "experiment_info": {
+    "timestamp": "2026-03-10T13:02:21.039504",
+    "device": "cuda:0",
+    "cuda_available": true,
+    "log_directory": "logs_all/darcy_1d/setonet_quadrature_uniform/seed_0"
+  },
+  "model_architecture": {
+    "model_type": "SetONet",
+    "total_parameters": 215298,
+    "trainable_parameters": 215298,
+    "son_p_dim": 32,
+    "son_phi_hidden": 256,
+    "son_rho_hidden": 200,
+    "son_trunk_hidden": 256,
+    "son_n_trunk_layers": 4,
+    "son_phi_output_size": 32,
+    "son_aggregation": "attention",
+    "activation_fn": "relu",
+    "pos_encoding_type": "sinusoidal",
+    "pos_encoding_dim": 64,
+    "pos_encoding_max_freq": 0.1,
+    "use_positional_encoding": true,
+    "input_size_src": 1,
+    "output_size_src": 1,
+    "input_size_tgt": 1,
+    "output_size_tgt": 1,
+    "use_deeponet_bias": true,
+    "attention_n_tokens": 1
+  },
+  "training_parameters": {
+    "son_lr": 0.0005,
+    "son_epochs": 125000,
+    "batch_size": 64,
+    "lr_schedule_steps": [
+      25000,
+      75000,
+      125000,
+      175000,
+      1250000,
+      1500000
+    ],
+    "lr_schedule_gammas": [
+      0.2,
+      0.5,
+      0.2,
+      0.5,
+      0.2,
+      0.5
+    ]
+  },
+  "data_configuration": {
+    "data_path": "Data/darcy_1d_data/darcy_1d_dataset_501",
+    "dataset_type": "darcy_1d",
+    "train_samples": 10000,
+    "test_samples": 1000,
+    "total_samples": 11000,
+    "variable_sensors": false,
+    "train_sensor_dropoff": 0.0,
+    "eval_sensor_dropoff": 0.0,
+    "replace_with_nearest": false
+  },
+  "dataset_structure": {
+    "n_force_points": 300,
+    "n_mesh_points": 300,
+    "input_dim": 1
+  },
+  "model_loading": {
+    "load_model_path": null,
+    "pre_trained_model_loaded": false
+  },
+  "evaluation_results": {
+    "test_relative_l2_error": 0.002851244619814679,
+    "test_mse_loss": 1.2341053793107903e-07,
+    "test_cv_error_x": null,
+    "test_cv_error_y": null,
+    "test_cv_error_magnitude": null,
+    "evaluation_timestamp": "2026-03-10T13:02:21.039530",
+    "evaluation_settings": {
+      "eval_sensor_dropoff": 0.0,
+      "replace_with_nearest": false,
+      "n_test_samples_evaluated": 100
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "X": {
+      "feature": {
+        "dtype": "float64",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "u": {
+      "feature": {
+        "dtype": "float64",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "Y": {
+      "feature": {
+        "dtype": "float64",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "s": {
+      "feature": {
+        "dtype": "float64",
+        "_type": "Value"
+      },
+      "_type": "List"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}
