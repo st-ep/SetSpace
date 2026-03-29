@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from tqdm import trange
 
 from set_encoders import calculate_l2_relative_error
 
 from case_studies.shared import make_view_seeds as _make_view_seeds_generic
 from case_studies.shared import save_training_artifacts as _save_artifacts
+from case_studies.shared import train_loop
 from case_studies.sphere_signal_reconstruction.common import build_model_from_config, load_json, save_json
 from case_studies.sphere_signal_reconstruction.dataset import SphereSignalDataset
 from case_studies.sphere_signal_reconstruction.models import SphereSignalReconstructor
@@ -51,68 +50,30 @@ def train_reconstructor(
     reference_points: int,
     seed: int,
 ) -> dict:
-    model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    best_state = copy.deepcopy(model.state_dict())
-    best_rmse = float("inf")
-    history = []
-    ema_mse = None
-    ema_rel = None
-    tag = f"[{run_name}] " if run_name else ""
-
-    bar = trange(1, steps + 1)
-    for step in bar:
-        model.train()
+    def train_step(m, _step):
         obs_coords, obs_values, query_coords, query_targets, _ = dataset.sample_batch(
-            "train",
-            batch_size=batch_size,
-            n_points=train_points,
-            sampling_mode=train_sampling_mode,
-            device=device,
+            "train", batch_size=batch_size, n_points=train_points,
+            sampling_mode=train_sampling_mode, device=device,
         )
-        preds = model(obs_coords, obs_values, query_coords).unsqueeze(-1)
+        preds = m(obs_coords, obs_values, query_coords).unsqueeze(-1)
         loss = F.mse_loss(preds, query_targets)
-
-        optimizer.zero_grad()
-        loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        optimizer.step()
-
         with torch.no_grad():
             rel = calculate_l2_relative_error(preds.squeeze(-1), query_targets.squeeze(-1)).item()
-            ema_mse = float(loss.item()) if ema_mse is None else 0.95 * ema_mse + 0.05 * float(loss.item())
-            ema_rel = rel if ema_rel is None else 0.95 * ema_rel + 0.05 * rel
+        return loss, {"rel_l2": rel}
 
-        if step % eval_every == 0 or step == steps:
-            summary = evaluate_reconstructor(
-                model,
-                dataset,
-                split="val",
-                device=device,
-                point_counts=[train_points],
-                sampling_modes=val_sampling_modes,
-                n_resamples=1,
-                reference_points=reference_points,
-                batch_size=batch_size,
-                max_objects=val_objects,
-            )
-            val_rmse = summary["aggregate"]["avg_nonuniform_rmse"][str(train_points)]
-            history.append({"step": step, "train_mse": float(loss.item()), "train_rel_l2": rel, "val_rmse": val_rmse})
-            if val_rmse < best_rmse:
-                best_rmse = float(val_rmse)
-                best_state = copy.deepcopy(model.state_dict())
+    def eval_fn(m):
+        summary = evaluate_reconstructor(
+            m, dataset, split="val", device=device, point_counts=[train_points],
+            sampling_modes=val_sampling_modes, n_resamples=1,
+            reference_points=reference_points, batch_size=batch_size, max_objects=val_objects,
+        )
+        return summary["aggregate"]["avg_nonuniform_rmse"][str(train_points)]
 
-            bar.set_description(
-                f"{tag}Step {step} | Batch MSE {loss.item():.4f} | Batch RelL2 {rel:.3f} | "
-                f"EMA RelL2 {ema_rel:.3f} | Val Robust RMSE {val_rmse:.3f} | Grad {float(grad_norm):.2f}"
-            )
-        else:
-            bar.set_description(
-                f"{tag}Step {step} | Batch MSE {loss.item():.4f} | Batch RelL2 {rel:.3f} | EMA RelL2 {ema_rel:.3f}"
-            )
-
-    model.load_state_dict(best_state)
-    return {"seed": seed, "best_val_rmse": best_rmse, "history_tail": history[-10:]}
+    return train_loop(
+        model, run_name=run_name, device=device, steps=steps, lr=lr,
+        weight_decay=weight_decay, grad_clip=grad_clip, eval_every=eval_every,
+        seed=seed, train_step_fn=train_step, eval_fn=eval_fn, higher_is_better=False,
+    )
 
 
 def _evaluate_batch_metrics(

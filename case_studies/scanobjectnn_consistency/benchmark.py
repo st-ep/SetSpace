@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from tqdm import trange
 
 from case_studies.point_cloud_consistency.models import PointCloudSetClassifier
 from case_studies.scanobjectnn_consistency.common import build_model_from_config, load_json, save_json
 from case_studies.scanobjectnn_consistency.dataset import ScanObjectNNConsistencyDataset
 from case_studies.shared import make_view_seeds as _make_view_seeds_generic
 from case_studies.shared import save_training_artifacts as _save_artifacts
+from case_studies.shared import train_loop
 
 _SCANOBJ_MODE_OFFSETS = {
     "uniform_object": 11,
@@ -54,68 +53,30 @@ def train_classifier(
     reference_points: int,
     seed: int,
 ) -> dict:
-    model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    best_state = copy.deepcopy(model.state_dict())
-    best_score = -float("inf")
-    history = []
-    ema_loss = None
-    ema_acc = None
-    tag = f"[{run_name}] " if run_name else ""
-
-    bar = trange(1, steps + 1)
-    for step in bar:
-        model.train()
+    def train_step(m, _step):
         coords, values, labels = dataset.sample_batch(
-            "train",
-            batch_size=batch_size,
-            n_points=train_points,
-            sampling_mode=train_sampling_mode,
-            device=device,
+            "train", batch_size=batch_size, n_points=train_points,
+            sampling_mode=train_sampling_mode, device=device,
         )
-        logits = model(coords, values)
+        logits = m(coords, values)
         loss = F.cross_entropy(logits, labels)
-
-        optimizer.zero_grad()
-        loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        optimizer.step()
-
         with torch.no_grad():
-            train_acc = (logits.argmax(dim=-1) == labels).float().mean().item()
-            ema_loss = float(loss.item()) if ema_loss is None else 0.95 * ema_loss + 0.05 * float(loss.item())
-            ema_acc = train_acc if ema_acc is None else 0.95 * ema_acc + 0.05 * train_acc
+            acc = (logits.argmax(dim=-1) == labels).float().mean().item()
+        return loss, {"acc": acc}
 
-        if step % eval_every == 0 or step == steps:
-            summary = evaluate_classifier(
-                model,
-                dataset,
-                split="val",
-                device=device,
-                point_counts=[train_points],
-                sampling_modes=val_sampling_modes,
-                n_resamples=1,
-                reference_points=reference_points,
-                batch_size=batch_size,
-                max_objects=val_objects,
-            )
-            val_acc = summary["aggregate"]["avg_nonuniform_accuracy"][str(train_points)]
-            history.append({"step": step, "train_loss": float(loss.item()), "train_accuracy": train_acc, "val_score": val_acc})
-            if val_acc > best_score:
-                best_score = float(val_acc)
-                best_state = copy.deepcopy(model.state_dict())
+    def eval_fn(m):
+        summary = evaluate_classifier(
+            m, dataset, split="val", device=device, point_counts=[train_points],
+            sampling_modes=val_sampling_modes, n_resamples=1,
+            reference_points=reference_points, batch_size=batch_size, max_objects=val_objects,
+        )
+        return summary["aggregate"]["avg_nonuniform_accuracy"][str(train_points)]
 
-            bar.set_description(
-                f"{tag}Step {step} | Batch Loss {loss.item():.4f} | Batch Acc {train_acc:.3f} | "
-                f"EMA Acc {ema_acc:.3f} | Val Robust Acc {val_acc:.3f} | Grad {float(grad_norm):.2f}"
-            )
-        else:
-            bar.set_description(
-                f"{tag}Step {step} | Batch Loss {loss.item():.4f} | Batch Acc {train_acc:.3f} | EMA Acc {ema_acc:.3f}"
-            )
-
-    model.load_state_dict(best_state)
-    return {"seed": seed, "best_val_score": best_score, "history_tail": history[-10:]}
+    return train_loop(
+        model, run_name=run_name, device=device, steps=steps, lr=lr,
+        weight_decay=weight_decay, grad_clip=grad_clip, eval_every=eval_every,
+        seed=seed, train_step_fn=train_step, eval_fn=eval_fn, higher_is_better=True,
+    )
 
 
 def _aggregate_metrics(

@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import trange
 
 
 def set_random_seed(seed: int) -> None:
@@ -55,6 +56,78 @@ def make_view_seeds(
         + replica_idx * 7_919
         + int(n_points)
     )
+
+
+def train_loop(
+    model: nn.Module,
+    *,
+    run_name: str | None = None,
+    device: torch.device,
+    steps: int,
+    lr: float,
+    weight_decay: float,
+    grad_clip: float,
+    eval_every: int,
+    seed: int,
+    train_step_fn,
+    eval_fn,
+    higher_is_better: bool = True,
+) -> dict:
+    """
+    Generic training loop shared across case studies.
+
+    Args:
+        train_step_fn: callable(model, step) -> (loss: Tensor, metrics: dict[str, float])
+            Called each step. Returns scalar loss and display metrics dict.
+        eval_fn: callable(model) -> float
+            Called every eval_every steps. Returns the validation score.
+        higher_is_better: If True, maximize eval score; if False, minimize.
+    """
+    import copy
+
+    model.to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    best_state = copy.deepcopy(model.state_dict())
+    best_score = -float("inf") if higher_is_better else float("inf")
+    history: list[dict] = []
+    ema_vals: dict[str, float] = {}
+    tag = f"[{run_name}] " if run_name else ""
+
+    def _is_better(score: float) -> bool:
+        return score > best_score if higher_is_better else score < best_score
+
+    bar = trange(1, steps + 1)
+    for step in bar:
+        model.train()
+        loss, metrics = train_step_fn(model, step)
+
+        optimizer.zero_grad()
+        loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
+
+        # Update EMA for all metrics
+        for k, v in metrics.items():
+            ema_vals[k] = v if k not in ema_vals else 0.95 * ema_vals[k] + 0.05 * v
+
+        if step % eval_every == 0 or step == steps:
+            val_score = eval_fn(model)
+            entry = {"step": step, "val_score": val_score, **metrics}
+            history.append(entry)
+            if _is_better(val_score):
+                best_score = float(val_score)
+                best_state = copy.deepcopy(model.state_dict())
+
+            ema_str = " | ".join(f"EMA {k} {v:.3f}" for k, v in ema_vals.items())
+            bar.set_description(
+                f"{tag}Step {step} | Loss {loss.item():.4f} | {ema_str} | Val {val_score:.3f} | Grad {float(grad_norm):.2f}"
+            )
+        else:
+            ema_str = " | ".join(f"EMA {k} {v:.3f}" for k, v in ema_vals.items())
+            bar.set_description(f"{tag}Step {step} | Loss {loss.item():.4f} | {ema_str}")
+
+    model.load_state_dict(best_state)
+    return {"seed": seed, "best_val_score": best_score, "history_tail": history[-10:]}
 
 
 def save_training_artifacts(
