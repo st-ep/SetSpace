@@ -6,6 +6,5 @@ License-File: LICENSE
 Requires-Dist: torch>=2.0
 Requires-Dist: numpy>=1.24
 Requires-Dist: matplotlib>=3.7
-Requires-Dist: datasets>=2.14
 Requires-Dist: tqdm>=4.65
 Dynamic: license-file

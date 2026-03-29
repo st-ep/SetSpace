@@ -14,8 +14,7 @@ class SetEncoderOperator(nn.Module):
     A minimal operator-learning model built around a weighted set encoder.
 
     The branch path encodes sampled source observations as a set, while the
-    trunk path maps query coordinates to basis coefficients. Darcy 1D is one
-    case study of this generic pattern.
+    trunk path maps query coordinates to basis coefficients.
     """
 
     def __init__(

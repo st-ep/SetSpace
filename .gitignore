@@ -6,6 +6,5 @@ __pycache__/
 .ipynb_checkpoints/
 results/
 logs/
-*.arrow
 *.h5
 __MACOSX/
