@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -121,8 +120,8 @@ class WeightedSetEncoder(nn.Module):
         self,
         coords: torch.Tensor,
         values: torch.Tensor,
-        element_mask: Optional[torch.Tensor] = None,
-        element_weights: Optional[torch.Tensor] = None,
+        element_mask: torch.Tensor | None = None,
+        element_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if coords.dim() != 3 or values.dim() != 3:
             raise ValueError(f"coords and values must be 3D, got {coords.shape=} and {values.shape=}")

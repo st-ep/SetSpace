@@ -3,32 +3,36 @@ from __future__ import annotations
 import torch
 
 
+def _coerce_2d(
+    xs: torch.Tensor,
+    tensor: torch.Tensor | None,
+    *,
+    as_bool: bool = False,
+) -> torch.Tensor | None:
+    if tensor is None:
+        return None
+    if tensor.dim() == 3 and tensor.shape[-1] == 1:
+        tensor = tensor.squeeze(-1)
+    expected_shape = xs.shape[:2]
+    if tensor.shape != expected_shape:
+        raise ValueError(f"{tensor.shape=} must be (B, N) = {expected_shape}")
+    if as_bool:
+        return tensor.to(device=xs.device).bool()
+    return tensor.to(device=xs.device, dtype=xs.dtype)
+
+
 def _coerce_mask(
     xs: torch.Tensor,
     sensor_mask: torch.Tensor | None,
 ) -> torch.Tensor | None:
-    if sensor_mask is None:
-        return None
-    if sensor_mask.dim() == 3 and sensor_mask.shape[-1] == 1:
-        sensor_mask = sensor_mask.squeeze(-1)
-    expected_shape = xs.shape[:2]
-    if sensor_mask.shape != expected_shape:
-        raise ValueError(f"{sensor_mask.shape=} must be (B, N) = {expected_shape}")
-    return sensor_mask.to(device=xs.device).bool()
+    return _coerce_2d(xs, sensor_mask, as_bool=True)
 
 
 def _coerce_weights(
     xs: torch.Tensor,
     weights: torch.Tensor | None,
 ) -> torch.Tensor | None:
-    if weights is None:
-        return None
-    if weights.dim() == 3 and weights.shape[-1] == 1:
-        weights = weights.squeeze(-1)
-    expected_shape = xs.shape[:2]
-    if weights.shape != expected_shape:
-        raise ValueError(f"{weights.shape=} must be (B, N) = {expected_shape}")
-    return weights.to(device=xs.device, dtype=xs.dtype)
+    return _coerce_2d(xs, weights)
 
 
 def infer_uniform_weights(

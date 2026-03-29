@@ -181,12 +181,14 @@ class SphereSignalDataset:
         return start + local_index
 
     def _harmonic_basis(self, points: torch.Tensor) -> torch.Tensor:
-        return _real_harmonic_basis_raw(points) / self._basis_scale.to(device=points.device, dtype=points.dtype).unsqueeze(0)
+        scale = self._basis_scale.to(device=points.device, dtype=points.dtype)
+        return _real_harmonic_basis_raw(points) / scale.unsqueeze(0)
 
     def evaluate_field_raw(self, obj: SphereSignalObject, points: torch.Tensor) -> torch.Tensor:
+        _to = lambda t: t.to(device=points.device, dtype=points.dtype)
         basis = self._harmonic_basis(points)
-        smooth = basis @ obj.global_coeffs.to(device=points.device, dtype=points.dtype)
-        local = torch.exp(obj.bump_concentrations.to(device=points.device, dtype=points.dtype) * ((points @ obj.bump_centers.to(device=points.device, dtype=points.dtype).T) - 1.0)) @ obj.bump_amplitudes.to(device=points.device, dtype=points.dtype)
+        smooth = basis @ _to(obj.global_coeffs)
+        local = torch.exp(_to(obj.bump_concentrations) * ((points @ _to(obj.bump_centers).T) - 1.0)) @ _to(obj.bump_amplitudes)
         return smooth + local
 
     def evaluate_split_object_raw(self, split: str, local_index: int, points: torch.Tensor) -> torch.Tensor:

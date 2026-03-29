@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import random
 from pathlib import Path
@@ -58,6 +59,23 @@ def make_view_seeds(
     )
 
 
+def avg_over_nonuniform_modes(
+    per_setting: dict[str, dict[str, dict[str, float]]],
+    metric: str,
+    point_counts: list[int],
+    sampling_modes: list[str],
+    *,
+    uniform_key: str = "uniform",
+) -> dict[str, float]:
+    nonuniform = [m for m in sampling_modes if m != uniform_key]
+    if not nonuniform:
+        nonuniform = [uniform_key]
+    return {
+        str(n): sum(per_setting[m][str(n)][metric] for m in nonuniform) / len(nonuniform)
+        for n in point_counts
+    }
+
+
 def train_loop(
     model: nn.Module,
     *,
@@ -83,8 +101,6 @@ def train_loop(
             Called every eval_every steps. Returns the validation score.
         higher_is_better: If True, maximize eval score; if False, minimize.
     """
-    import copy
-
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     best_state = copy.deepcopy(model.state_dict())
@@ -150,3 +166,16 @@ def save_training_artifacts(
         "training_summary": training_summary,
     }
     save_json(output_dir / "experiment_config.json", config)
+
+
+def load_model_checkpoint(
+    checkpoint_dir: Path,
+    device: torch.device,
+    build_model_fn,
+) -> tuple[nn.Module, dict]:
+    cfg = load_json(checkpoint_dir / "experiment_config.json")
+    model = build_model_fn(cfg["model"]).to(device)
+    state_dict = torch.load(checkpoint_dir / "model.pth", map_location=device)
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model, cfg

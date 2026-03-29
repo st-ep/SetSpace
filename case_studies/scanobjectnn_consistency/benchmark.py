@@ -6,9 +6,9 @@ import torch
 import torch.nn.functional as F
 
 from case_studies.point_cloud_consistency.models import PointCloudSetClassifier
-from case_studies.scanobjectnn_consistency.common import build_model_from_config, load_json, save_json
+from case_studies.scanobjectnn_consistency.common import build_model_from_config
 from case_studies.scanobjectnn_consistency.dataset import ScanObjectNNConsistencyDataset
-from case_studies.shared import make_view_seeds as _make_view_seeds_generic
+from case_studies.shared import avg_over_nonuniform_modes, make_view_seeds
 from case_studies.shared import save_training_artifacts as _save_artifacts
 from case_studies.shared import train_loop
 
@@ -20,15 +20,8 @@ _SCANOBJ_MODE_OFFSETS = {
 }
 
 
-def _make_view_seeds(
-    split: str,
-    local_indices: torch.Tensor,
-    *,
-    n_points: int,
-    sampling_mode: str,
-    replica_idx: int,
-) -> torch.Tensor:
-    return _make_view_seeds_generic(
+def _make_view_seeds(split, local_indices, *, n_points, sampling_mode, replica_idx):
+    return make_view_seeds(
         split, local_indices, n_points=n_points, sampling_mode=sampling_mode,
         replica_idx=replica_idx, mode_offsets=_SCANOBJ_MODE_OFFSETS,
     )
@@ -85,46 +78,23 @@ def _aggregate_metrics(
     sampling_modes: list[str],
     replacement_stats: dict[str, dict[str, dict[str, int]]],
 ) -> dict:
-    accuracy_by_count = {}
-    embedding_drift_by_count = {}
-    logit_drift_by_count = {}
-    prediction_consistency_by_count = {}
-    worst_case_accuracy = {}
-    for n_points in point_counts:
-        key = str(n_points)
-        accuracy_by_count[key] = {mode: per_setting[mode][key]["accuracy"] for mode in sampling_modes}
-        embedding_drift_by_count[key] = {mode: per_setting[mode][key]["embedding_drift"] for mode in sampling_modes}
-        logit_drift_by_count[key] = {mode: per_setting[mode][key]["logit_drift"] for mode in sampling_modes}
-        prediction_consistency_by_count[key] = {
-            mode: per_setting[mode][key]["prediction_consistency"] for mode in sampling_modes
-        }
-        worst_case_accuracy[key] = min(accuracy_by_count[key].values())
+    def _by_count(metric: str) -> dict:
+        return {str(n): {m: per_setting[m][str(n)][metric] for m in sampling_modes} for n in point_counts}
 
-    nonuniform_modes = [mode for mode in sampling_modes if mode != "uniform_object"]
-    avg_nonuniform_accuracy = {
-        str(n_points): sum(per_setting[mode][str(n_points)]["accuracy"] for mode in nonuniform_modes) / len(nonuniform_modes)
-        for n_points in point_counts
-    }
-    avg_nonuniform_embedding_drift = {
-        str(n_points): sum(per_setting[mode][str(n_points)]["embedding_drift"] for mode in nonuniform_modes)
-        / len(nonuniform_modes)
-        for n_points in point_counts
-    }
-    avg_nonuniform_logit_drift = {
-        str(n_points): sum(per_setting[mode][str(n_points)]["logit_drift"] for mode in nonuniform_modes)
-        / len(nonuniform_modes)
-        for n_points in point_counts
-    }
+    accuracy_by_count = _by_count("accuracy")
+    _avg = lambda metric: avg_over_nonuniform_modes(
+        per_setting, metric, point_counts, sampling_modes, uniform_key="uniform_object",
+    )
 
     return {
         "accuracy_by_count": accuracy_by_count,
-        "embedding_drift_by_count": embedding_drift_by_count,
-        "logit_drift_by_count": logit_drift_by_count,
-        "prediction_consistency_by_count": prediction_consistency_by_count,
-        "worst_case_accuracy": worst_case_accuracy,
-        "avg_nonuniform_accuracy": avg_nonuniform_accuracy,
-        "avg_nonuniform_embedding_drift": avg_nonuniform_embedding_drift,
-        "avg_nonuniform_logit_drift": avg_nonuniform_logit_drift,
+        "embedding_drift_by_count": _by_count("embedding_drift"),
+        "logit_drift_by_count": _by_count("logit_drift"),
+        "prediction_consistency_by_count": _by_count("prediction_consistency"),
+        "worst_case_accuracy": {str(n): min(accuracy_by_count[str(n)].values()) for n in point_counts},
+        "avg_nonuniform_accuracy": _avg("accuracy"),
+        "avg_nonuniform_embedding_drift": _avg("embedding_drift"),
+        "avg_nonuniform_logit_drift": _avg("logit_drift"),
         "replacement_stats": replacement_stats,
     }
 
@@ -279,9 +249,5 @@ def save_training_artifacts(
 
 
 def load_model_checkpoint(checkpoint_dir: Path, device: torch.device) -> tuple[PointCloudSetClassifier, dict]:
-    cfg = load_json(checkpoint_dir / "experiment_config.json")
-    model = build_model_from_config(cfg["model"]).to(device)
-    state_dict = torch.load(checkpoint_dir / "model.pth", map_location=device)
-    model.load_state_dict(state_dict)
-    model.eval()
-    return model, cfg
+    from case_studies.shared import load_model_checkpoint as _load
+    return _load(checkpoint_dir, device, build_model_from_config)

@@ -107,72 +107,13 @@ class PointCloudSetPredictor(nn.Module):
 
 
 class PointCloudSetClassifier(PointCloudSetPredictor):
-    def __init__(
-        self,
-        *,
-        value_input_dim: int = 1,
-        num_classes: int = 2,
-        n_tokens: int = 16,
-        token_dim: int = 32,
-        key_dim: int = 64,
-        hidden_dim: int = 128,
-        activation_fn=nn.GELU,
-        basis_activation: str = "softplus",
-        value_mode: str = "mlp_xu",
-        normalize: str = "total",
-        weight_mode: str = "uniform",
-        knn_k: int = 8,
-        intrinsic_dim: int = 2,
-    ) -> None:
-        super().__init__(
-            value_input_dim=value_input_dim,
-            output_dim=num_classes,
-            n_tokens=n_tokens,
-            token_dim=token_dim,
-            key_dim=key_dim,
-            hidden_dim=hidden_dim,
-            activation_fn=activation_fn,
-            basis_activation=basis_activation,
-            value_mode=value_mode,
-            normalize=normalize,
-            weight_mode=weight_mode,
-            knn_k=knn_k,
-            intrinsic_dim=intrinsic_dim,
-        )
+    def __init__(self, *, num_classes: int = 2, **kwargs) -> None:
+        super().__init__(output_dim=num_classes, **kwargs)
 
 
 class PointCloudMeanRegressor(PointCloudSetPredictor):
-    def __init__(
-        self,
-        *,
-        value_input_dim: int = 1,
-        n_tokens: int = 16,
-        token_dim: int = 32,
-        key_dim: int = 64,
-        hidden_dim: int = 128,
-        activation_fn=nn.GELU,
-        basis_activation: str = "softplus",
-        value_mode: str = "mlp_xu",
-        normalize: str = "total",
-        weight_mode: str = "uniform",
-        knn_k: int = 8,
-        intrinsic_dim: int = 2,
-    ) -> None:
-        super().__init__(
-            value_input_dim=value_input_dim,
-            output_dim=1,
-            n_tokens=n_tokens,
-            token_dim=token_dim,
-            key_dim=key_dim,
-            hidden_dim=hidden_dim,
-            activation_fn=activation_fn,
-            basis_activation=basis_activation,
-            value_mode=value_mode,
-            normalize=normalize,
-            weight_mode=weight_mode,
-            knn_k=knn_k,
-            intrinsic_dim=intrinsic_dim,
-        )
+    def __init__(self, **kwargs) -> None:
+        super().__init__(output_dim=1, **kwargs)
 
     def forward(
         self,

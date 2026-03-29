@@ -7,25 +7,18 @@ import torch.nn.functional as F
 
 from set_encoders import calculate_l2_relative_error
 
-from case_studies.shared import make_view_seeds as _make_view_seeds_generic
+from case_studies.shared import avg_over_nonuniform_modes, make_view_seeds
 from case_studies.shared import save_training_artifacts as _save_artifacts
 from case_studies.shared import train_loop
-from case_studies.sphere_signal_reconstruction.common import build_model_from_config, load_json, save_json
+from case_studies.sphere_signal_reconstruction.common import build_model_from_config
 from case_studies.sphere_signal_reconstruction.dataset import SphereSignalDataset
 from case_studies.sphere_signal_reconstruction.models import SphereSignalReconstructor
 
 _SPHERE_MODE_OFFSETS = {"uniform": 11, "polar": 23, "equatorial": 31, "clustered": 47, "hemisphere": 59}
 
 
-def _make_view_seeds(
-    split: str,
-    local_indices: torch.Tensor,
-    *,
-    n_points: int,
-    sampling_mode: str,
-    replica_idx: int,
-) -> torch.Tensor:
-    return _make_view_seeds_generic(
+def _make_view_seeds(split, local_indices, *, n_points, sampling_mode, replica_idx):
+    return make_view_seeds(
         split, local_indices, n_points=n_points, sampling_mode=sampling_mode,
         replica_idx=replica_idx, mode_offsets=_SPHERE_MODE_OFFSETS,
     )
@@ -99,53 +92,21 @@ def _aggregate_metrics(
     point_counts: list[int],
     sampling_modes: list[str],
 ) -> dict:
-    rmse_by_count = {}
-    relative_l2_by_count = {}
-    prediction_drift_by_count = {}
-    spectral_error_by_count = {}
-    worst_case_rmse = {}
-    for n_points in point_counts:
-        key = str(n_points)
-        rmse_by_count[key] = {mode: per_setting[mode][key]["rmse"] for mode in sampling_modes}
-        relative_l2_by_count[key] = {mode: per_setting[mode][key]["relative_l2"] for mode in sampling_modes}
-        prediction_drift_by_count[key] = {mode: per_setting[mode][key]["prediction_drift"] for mode in sampling_modes}
-        spectral_error_by_count[key] = {mode: per_setting[mode][key]["spectral_error"] for mode in sampling_modes}
-        worst_case_rmse[key] = max(rmse_by_count[key].values())
+    def _by_count(metric: str) -> dict:
+        return {str(n): {m: per_setting[m][str(n)][metric] for m in sampling_modes} for n in point_counts}
 
-    nonuniform_modes = [mode for mode in sampling_modes if mode != "uniform"]
-    if nonuniform_modes:
-        avg_nonuniform_rmse = {
-            str(n_points): sum(per_setting[mode][str(n_points)]["rmse"] for mode in nonuniform_modes) / len(nonuniform_modes)
-            for n_points in point_counts
-        }
-        avg_nonuniform_prediction_drift = {
-            str(n_points): sum(per_setting[mode][str(n_points)]["prediction_drift"] for mode in nonuniform_modes)
-            / len(nonuniform_modes)
-            for n_points in point_counts
-        }
-        avg_nonuniform_spectral_error = {
-            str(n_points): sum(per_setting[mode][str(n_points)]["spectral_error"] for mode in nonuniform_modes)
-            / len(nonuniform_modes)
-            for n_points in point_counts
-        }
-    else:
-        avg_nonuniform_rmse = {str(n_points): per_setting["uniform"][str(n_points)]["rmse"] for n_points in point_counts}
-        avg_nonuniform_prediction_drift = {
-            str(n_points): per_setting["uniform"][str(n_points)]["prediction_drift"] for n_points in point_counts
-        }
-        avg_nonuniform_spectral_error = {
-            str(n_points): per_setting["uniform"][str(n_points)]["spectral_error"] for n_points in point_counts
-        }
+    rmse_by_count = _by_count("rmse")
+    _avg = lambda metric: avg_over_nonuniform_modes(per_setting, metric, point_counts, sampling_modes)
 
     return {
         "rmse_by_count": rmse_by_count,
-        "relative_l2_by_count": relative_l2_by_count,
-        "prediction_drift_by_count": prediction_drift_by_count,
-        "spectral_error_by_count": spectral_error_by_count,
-        "worst_case_rmse": worst_case_rmse,
-        "avg_nonuniform_rmse": avg_nonuniform_rmse,
-        "avg_nonuniform_prediction_drift": avg_nonuniform_prediction_drift,
-        "avg_nonuniform_spectral_error": avg_nonuniform_spectral_error,
+        "relative_l2_by_count": _by_count("relative_l2"),
+        "prediction_drift_by_count": _by_count("prediction_drift"),
+        "spectral_error_by_count": _by_count("spectral_error"),
+        "worst_case_rmse": {str(n): max(rmse_by_count[str(n)].values()) for n in point_counts},
+        "avg_nonuniform_rmse": _avg("rmse"),
+        "avg_nonuniform_prediction_drift": _avg("prediction_drift"),
+        "avg_nonuniform_spectral_error": _avg("spectral_error"),
     }
 
 
@@ -345,9 +306,5 @@ def save_training_artifacts(
 
 
 def load_model_checkpoint(checkpoint_dir: Path, device: torch.device) -> tuple[SphereSignalReconstructor, dict]:
-    cfg = load_json(checkpoint_dir / "experiment_config.json")
-    model = build_model_from_config(cfg["model"]).to(device)
-    state_dict = torch.load(checkpoint_dir / "model.pth", map_location=device)
-    model.load_state_dict(state_dict)
-    model.eval()
-    return model, cfg
+    from case_studies.shared import load_model_checkpoint as _load
+    return _load(checkpoint_dir, device, build_model_from_config)
