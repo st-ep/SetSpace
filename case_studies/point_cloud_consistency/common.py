@@ -1,44 +1,14 @@
 from __future__ import annotations
 
-import json
-import random
-import sys
-from pathlib import Path
-
-import numpy as np
 import torch
 import torch.nn as nn
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 from case_studies.point_cloud_consistency.dataset import SAMPLING_MODES, SyntheticSurfaceSignalDataset
 from case_studies.point_cloud_consistency.models import PointCloudMeanRegressor, PointCloudSetClassifier
+from case_studies.shared import get_activation, load_json, save_json, set_random_seed
 
 DEFAULT_POINT_COUNTS = [32, 64, 128, 256, 512]
 DEFAULT_EVAL_MODES = list(SAMPLING_MODES)
-
-
-def set_random_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-
-def save_json(path: Path, payload: dict) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-
-
-def load_json(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def build_dataset_from_config(dataset_config: dict) -> SyntheticSurfaceSignalDataset:
@@ -46,8 +16,7 @@ def build_dataset_from_config(dataset_config: dict) -> SyntheticSurfaceSignalDat
 
 
 def build_model_from_config(model_config: dict) -> torch.nn.Module:
-    activation_name = model_config.get("activation_fn", "gelu").lower()
-    activation_fn = {"relu": nn.ReLU, "gelu": nn.GELU, "tanh": nn.Tanh}.get(activation_name, nn.GELU)
+    activation_fn = get_activation(model_config.get("activation_fn", "gelu"))
     common_kwargs = {
         "value_input_dim": model_config["value_input_dim"],
         "n_tokens": model_config["n_tokens"],

@@ -1,5 +1,1 @@
-torch
-numpy
-matplotlib
-datasets
-tqdm
+-e .

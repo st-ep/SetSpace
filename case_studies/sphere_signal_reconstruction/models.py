@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from set_encoders import SetEncoderOperator, infer_knn_density_weights
+from set_encoders import SetEncoderOperator, infer_knn_density_weights, infer_uniform_weights
 
 
 class SphereSignalReconstructor(nn.Module):
@@ -61,10 +61,7 @@ class SphereSignalReconstructor(nn.Module):
         point_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if self.weight_mode == "uniform":
-            weights = torch.ones((obs_coords.shape[0], obs_coords.shape[1]), device=obs_coords.device, dtype=obs_coords.dtype)
-            if point_mask is not None:
-                weights = weights * point_mask.to(dtype=obs_coords.dtype)
-            return weights
+            return infer_uniform_weights(obs_coords, point_mask)
 
         return infer_knn_density_weights(
             obs_coords,

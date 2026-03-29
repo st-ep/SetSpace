@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from case_studies.point_cloud_consistency.models import PointCloudSetClassifier
 from case_studies.scanobjectnn_consistency.benchmark import save_training_artifacts, train_classifier

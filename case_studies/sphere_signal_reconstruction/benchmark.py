@@ -9,9 +9,13 @@ from tqdm import trange
 
 from set_encoders import calculate_l2_relative_error
 
+from case_studies.shared import make_view_seeds as _make_view_seeds_generic
+from case_studies.shared import save_training_artifacts as _save_artifacts
 from case_studies.sphere_signal_reconstruction.common import build_model_from_config, load_json, save_json
 from case_studies.sphere_signal_reconstruction.dataset import SphereSignalDataset
 from case_studies.sphere_signal_reconstruction.models import SphereSignalReconstructor
+
+_SPHERE_MODE_OFFSETS = {"uniform": 11, "polar": 23, "equatorial": 31, "clustered": 47, "hemisphere": 59}
 
 
 def _make_view_seeds(
@@ -22,9 +26,10 @@ def _make_view_seeds(
     sampling_mode: str,
     replica_idx: int,
 ) -> torch.Tensor:
-    mode_offset = {"uniform": 11, "polar": 23, "equatorial": 31, "clustered": 47, "hemisphere": 59}[sampling_mode]
-    split_offset = {"train": 101, "val": 211, "test": 307}[split]
-    return local_indices.to(dtype=torch.long) * 65_537 + split_offset + mode_offset * 997 + replica_idx * 7_919 + int(n_points)
+    return _make_view_seeds_generic(
+        split, local_indices, n_points=n_points, sampling_mode=sampling_mode,
+        replica_idx=replica_idx, mode_offsets=_SPHERE_MODE_OFFSETS,
+    )
 
 
 def train_reconstructor(
@@ -367,17 +372,14 @@ def save_training_artifacts(
     training_config: dict,
     training_summary: dict,
 ) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), output_dir / "model.pth")
-    save_json(
-        output_dir / "experiment_config.json",
-        {
-            "dataset": dataset.get_config(),
-            "normalization": dataset.get_normalization_stats(),
-            "model": model_config,
-            "training": training_config,
-            "training_summary": training_summary,
-        },
+    _save_artifacts(
+        output_dir,
+        model=model,
+        dataset_config=dataset.get_config(),
+        model_config=model_config,
+        training_config=training_config,
+        training_summary=training_summary,
+        normalization=dataset.get_normalization_stats(),
     )
 
 

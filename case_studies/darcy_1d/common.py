@@ -1,32 +1,14 @@
 from __future__ import annotations
 
-import json
-import os
-import sys
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
+from case_studies.shared import get_activation, load_json
 from set_encoders import SetEncoderOperator
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINTS = REPO_ROOT / "checkpoints"
-
-
-def get_activation(name: str | None):
-    return {"relu": nn.ReLU, "tanh": nn.Tanh, "gelu": nn.GELU, "swish": nn.SiLU}.get(
-        (name or "relu").lower(),
-        nn.ReLU,
-    )
-
-
-def load_json(path: os.PathLike | str):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def build_operator_from_config(
@@ -59,7 +41,9 @@ def build_operator_from_config(
         value_mode="linear_u",
         uniform_sensor_weights=uniform_sensor_weights,
     ).to(device)
-    model.load_state_dict(torch.load(checkpoint_dir / "darcy1d_setonet_model.pth", map_location=device))
+    state_dict = torch.load(checkpoint_dir / "darcy1d_setonet_model.pth", map_location=device)
+    state_dict = {k.replace("quadrature_head.", "_set_encoder."): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
     model.eval()
     return model
 

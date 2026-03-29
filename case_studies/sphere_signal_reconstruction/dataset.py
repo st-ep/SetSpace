@@ -5,12 +5,10 @@ from dataclasses import dataclass
 
 import torch
 
+from case_studies.sphere_utils import sample_surface_points, sample_uniform_sphere
+
 SAMPLING_MODES = ("uniform", "polar", "equatorial", "clustered", "hemisphere")
 SPLITS = ("train", "val", "test")
-
-
-def _normalize(v: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
-    return v / v.norm(dim=-1, keepdim=True).clamp_min(eps)
 
 
 def fibonacci_sphere(n_points: int) -> torch.Tensor:
@@ -48,44 +46,6 @@ def nested_fibonacci_prefix_order(n_points: int) -> torch.Tensor:
     limit = 1 << n_bits
     order = [_bit_reverse(i, n_bits) for i in range(limit) if _bit_reverse(i, n_bits) < n_points]
     return torch.tensor(order, dtype=torch.long)
-
-
-def _sample_uniform_sphere(n_points: int, generator: torch.Generator) -> torch.Tensor:
-    return _normalize(torch.randn((int(n_points), 3), generator=generator, dtype=torch.float32))
-
-
-def _score_candidates(points: torch.Tensor, mode: str, generator: torch.Generator) -> torch.Tensor:
-    z = points[:, 2]
-
-    if mode == "uniform":
-        return torch.ones(points.shape[0], dtype=points.dtype)
-    if mode == "polar":
-        return 0.05 + torch.exp(2.8 * z)
-    if mode == "equatorial":
-        return 0.05 + torch.exp(-10.0 * z.square())
-    if mode == "clustered":
-        centers = _sample_uniform_sphere(2, generator)
-        scores = torch.exp(7.0 * (points @ centers.T))
-        return 0.05 + scores.sum(dim=1)
-    if mode == "hemisphere":
-        view_dir = _sample_uniform_sphere(1, generator).squeeze(0)
-        visibility = points @ view_dir
-        return 0.05 + torch.sigmoid(8.0 * visibility)
-
-    raise ValueError(f"Unknown sampling mode: {mode}")
-
-
-def sample_surface_points(
-    n_points: int,
-    sampling_mode: str,
-    generator: torch.Generator,
-    candidate_multiplier: int = 10,
-) -> torch.Tensor:
-    candidate_count = max(int(n_points) * int(candidate_multiplier), 2048)
-    candidates = _sample_uniform_sphere(candidate_count, generator)
-    scores = _score_candidates(candidates, sampling_mode, generator).clamp_min(1e-6)
-    sample_idx = torch.multinomial(scores, int(n_points), replacement=False, generator=generator)
-    return candidates[sample_idx]
 
 
 def _real_harmonic_basis_raw(points: torch.Tensor) -> torch.Tensor:
@@ -165,7 +125,7 @@ class SphereSignalDataset:
         for global_idx in range(self.total_objects):
             generator = torch.Generator().manual_seed(self.seed * 100_003 + global_idx * 7_919 + 19)
             global_coeffs = degree_scales * torch.randn(16, generator=generator, dtype=torch.float32)
-            bump_centers = _sample_uniform_sphere(self.n_bumps, generator)
+            bump_centers = sample_uniform_sphere(self.n_bumps, generator)
             bump_amplitudes = 0.55 * torch.randn(self.n_bumps, generator=generator, dtype=torch.float32)
             bump_concentrations = torch.empty(self.n_bumps, dtype=torch.float32).uniform_(
                 8.0,

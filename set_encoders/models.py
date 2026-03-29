@@ -6,7 +6,7 @@ from tqdm import trange
 
 from .encoders import WeightedSetEncoder
 from .utils import calculate_l2_relative_error
-from .weights import infer_quadrature_weights
+from .weights import infer_quadrature_weights, infer_uniform_weights
 
 
 class SetEncoderOperator(nn.Module):
@@ -29,7 +29,7 @@ class SetEncoderOperator(nn.Module):
         rho_hidden_size: int = 256,
         trunk_hidden_size: int = 256,
         n_trunk_layers: int = 4,
-        activation_fn=nn.ReLU,
+        activation_fn: type[nn.Module] = nn.ReLU,
         use_deeponet_bias: bool = True,
         phi_output_size: int = 128,
         initial_lr: float = 5e-4,
@@ -48,31 +48,8 @@ class SetEncoderOperator(nn.Module):
         encoder_normalize: str = "total",
         learn_temperature: bool = False,
         uniform_sensor_weights: bool = False,
-        **legacy_kwargs,
     ):
         super().__init__()
-
-        if key_dim is None and "quad_dk" in legacy_kwargs:
-            key_dim = legacy_kwargs.pop("quad_dk")
-        if value_dim is None and "quad_dv" in legacy_kwargs:
-            value_dim = legacy_kwargs.pop("quad_dv")
-        if key_hidden_dim is None and "quad_key_hidden" in legacy_kwargs:
-            key_hidden_dim = legacy_kwargs.pop("quad_key_hidden")
-        if "quad_key_layers" in legacy_kwargs:
-            key_layers = legacy_kwargs.pop("quad_key_layers")
-        if "quad_phi_activation" in legacy_kwargs:
-            basis_activation = legacy_kwargs.pop("quad_phi_activation")
-        if "quad_value_mode" in legacy_kwargs:
-            value_mode = legacy_kwargs.pop("quad_value_mode")
-        if "quad_normalize" in legacy_kwargs:
-            encoder_normalize = legacy_kwargs.pop("quad_normalize")
-        if "quad_learn_temperature" in legacy_kwargs:
-            learn_temperature = legacy_kwargs.pop("quad_learn_temperature")
-        if "quad_uniform_weights" in legacy_kwargs:
-            uniform_sensor_weights = legacy_kwargs.pop("quad_uniform_weights")
-        if legacy_kwargs:
-            unknown = ", ".join(sorted(legacy_kwargs))
-            raise TypeError(f"Unknown keyword arguments: {unknown}")
 
         self.input_size_src = input_size_src
         self.output_size_src = output_size_src
@@ -115,7 +92,7 @@ class SetEncoderOperator(nn.Module):
         encoded_coord_dim = self.pos_encoding_dim if self.use_positional_encoding else self.input_size_src
         key_dim = key_dim if key_dim is not None else self.phi_output_size
         value_dim = value_dim if value_dim is not None else self.phi_output_size
-        self.quadrature_head = WeightedSetEncoder(
+        self._set_encoder = WeightedSetEncoder(
             n_tokens=self.p,
             coord_dim=encoded_coord_dim,
             value_input_dim=self.output_size_src,
@@ -145,7 +122,7 @@ class SetEncoderOperator(nn.Module):
 
     @property
     def set_encoder(self) -> WeightedSetEncoder:
-        return self.quadrature_head
+        return self._set_encoder
 
     def _sinusoidal_encoding(self, coords: torch.Tensor) -> torch.Tensor:
         coord_dim = coords.shape[-1]
@@ -169,7 +146,6 @@ class SetEncoderOperator(nn.Module):
         self,
         xs: torch.Tensor,
         us: torch.Tensor,
-        ys: torch.Tensor | None = None,
         sensor_mask: torch.Tensor | None = None,
         sensor_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -177,14 +153,11 @@ class SetEncoderOperator(nn.Module):
         if sensor_weights is not None:
             inferred_weights = sensor_weights
         elif self.uniform_sensor_weights:
-            inferred_weights = torch.ones((xs.shape[0], xs.shape[1]), device=xs.device, dtype=xs.dtype)
-            if sensor_mask is not None:
-                mask = sensor_mask.squeeze(-1) if sensor_mask.dim() == 3 and sensor_mask.shape[-1] == 1 else sensor_mask
-                inferred_weights = inferred_weights * mask.to(dtype=xs.dtype)
+            inferred_weights = infer_uniform_weights(xs, sensor_mask)
         else:
             inferred_weights = infer_quadrature_weights(xs, sensor_mask)
 
-        return self.quadrature_head(
+        return self._set_encoder(
             encoded_coords,
             us,
             element_mask=sensor_mask,
@@ -204,7 +177,7 @@ class SetEncoderOperator(nn.Module):
         sensor_mask: torch.Tensor | None = None,
         sensor_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        branch_tokens = self.forward_branch(xs, us, ys=ys, sensor_mask=sensor_mask, sensor_weights=sensor_weights)
+        branch_tokens = self.forward_branch(xs, us, sensor_mask=sensor_mask, sensor_weights=sensor_weights)
         trunk_tokens = self.forward_trunk(ys)
         out = torch.einsum("bpz,bdpz->bdz", branch_tokens, trunk_tokens)
         if self.bias is not None:

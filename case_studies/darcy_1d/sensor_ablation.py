@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -10,8 +9,6 @@ import numpy as np
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from case_studies.darcy_1d.common import build_geometry_aware_model, build_uniform_model
 from data.darcy_1d import load_darcy_dataset

@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .weights import _coerce_mask, _coerce_weights
+
 
 class WeightedSetEncoder(nn.Module):
     """
@@ -32,7 +34,7 @@ class WeightedSetEncoder(nn.Module):
         key_dim: int,
         value_dim: int,
         hidden_dim: int,
-        activation_fn,
+        activation_fn: type[nn.Module],
         key_hidden_dim: int | None = None,
         key_layers: int = 3,
         basis_activation: str = "tanh",
@@ -130,20 +132,8 @@ class WeightedSetEncoder(nn.Module):
             )
 
         batch_size, n_elements = coords.shape[0], coords.shape[1]
-
-        if element_mask is not None:
-            if element_mask.dim() == 3 and element_mask.shape[-1] == 1:
-                element_mask = element_mask.squeeze(-1)
-            if element_mask.shape != (batch_size, n_elements):
-                raise ValueError(f"{element_mask.shape=} must be (B, N) = {(batch_size, n_elements)}")
-            element_mask = element_mask.to(device=coords.device).bool()
-
-        if element_weights is not None:
-            if element_weights.dim() == 3 and element_weights.shape[-1] == 1:
-                element_weights = element_weights.squeeze(-1)
-            if element_weights.shape != (batch_size, n_elements):
-                raise ValueError(f"{element_weights.shape=} must be (B, N) = {(batch_size, n_elements)}")
-            element_weights = element_weights.to(device=coords.device, dtype=coords.dtype)
+        element_mask = _coerce_mask(coords, element_mask)
+        element_weights = _coerce_weights(coords, element_weights)
 
         keys = self.key_net(coords)
         if self._value_includes_x:

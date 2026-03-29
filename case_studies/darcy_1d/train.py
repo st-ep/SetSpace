@@ -3,15 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from case_studies.darcy_1d.common import get_activation
 from data.darcy_1d import DarcyDataGenerator, create_query_points, create_sensor_points, load_darcy_dataset

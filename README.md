@@ -52,10 +52,6 @@ geometry-aggregation/
 ├── checkpoints/
 │   ├── setonet_key_trapezoidal/
 │   └── setonet_key_uniform/
-├── experiments/
-│   └── ... compatibility wrappers for old entry points
-├── geometry_aggregation/
-│   └── ... compatibility wrappers for old imports
 ├── ABSTRACT.md
 └── results/
 ```
@@ -285,15 +281,6 @@ The bundled Darcy 1D HuggingFace dataset lives under:
 The loader is:
 
 - `data/darcy_1d/dataset.py`
-
-## Compatibility
-
-The old modules and scripts are still present as thin wrappers:
-
-- `geometry_aggregation/` re-exports the new implementation for older imports
-- `experiments/` points to the new Darcy case-study entry points
-
-That keeps the current repo usable while shifting the conceptual center of gravity toward general set encoding rather than a single architecture name.
 
 ## Project Direction
 

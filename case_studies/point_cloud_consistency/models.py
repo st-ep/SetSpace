@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from set_encoders import WeightedSetEncoder, infer_knn_density_weights
+from set_encoders import WeightedSetEncoder, infer_knn_density_weights, infer_uniform_weights
 
 
 class PointCloudSetPredictor(nn.Module):
@@ -65,10 +65,7 @@ class PointCloudSetPredictor(nn.Module):
         point_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if self.weight_mode == "uniform":
-            weights = torch.ones((coords.shape[0], coords.shape[1]), device=coords.device, dtype=coords.dtype)
-            if point_mask is not None:
-                weights = weights * point_mask.to(dtype=coords.dtype)
-            return weights
+            return infer_uniform_weights(coords, point_mask)
 
         return infer_knn_density_weights(
             coords,
