@@ -6,3 +6,5 @@ __pycache__/
 results/
 logs/
 *.arrow
+*.h5
+__MACOSX/
