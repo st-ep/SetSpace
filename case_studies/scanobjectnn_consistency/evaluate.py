@@ -17,7 +17,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate ScanObjectNN consistency checkpoints.")
     parser.add_argument("--uniform_checkpoint", required=True)
     parser.add_argument("--geometry_checkpoint", required=True)
-    parser.add_argument("--moment2_checkpoint", default=None)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--data_root", default=str(REPO_ROOT / "data" / "ScanObjectNN" / "h5_files"))
     parser.add_argument("--variant", default="pb_t50_rs")
@@ -39,8 +38,6 @@ def main():
         ("uniform", args.uniform_checkpoint),
         ("geometry_aware", args.geometry_checkpoint),
     ]
-    if args.moment2_checkpoint:
-        checkpoints.append(("moment2", args.moment2_checkpoint))
 
     loaded = [(name, *load_model_checkpoint(Path(checkpoint_dir), device), checkpoint_dir) for name, checkpoint_dir in checkpoints]
     base_cfg = loaded[0][2]

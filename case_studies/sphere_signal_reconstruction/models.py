@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from set_encoders import SetEncoderOperator, infer_knn_density_weights, infer_moment2_weights, infer_uniform_weights
+from set_encoders import SetEncoderOperator, infer_knn_density_weights, infer_uniform_weights
 
 
 class SphereSignalReconstructor(nn.Module):
@@ -24,25 +24,15 @@ class SphereSignalReconstructor(nn.Module):
         use_deeponet_bias: bool = True,
         knn_k: int = 8,
         intrinsic_dim: int = 2,
-        mmq_anchor_ratio: float = 0.125,
-        mmq_max_anchors: int = 32,
-        mmq_patch_k: int = 16,
-        mmq_tangent_k: int = 16,
-        mmq_rank_tol: float = 1e-6,
     ) -> None:
         super().__init__()
 
         self.weight_mode = weight_mode.lower()
         self.knn_k = int(knn_k)
         self.intrinsic_dim = int(intrinsic_dim)
-        self.mmq_anchor_ratio = float(mmq_anchor_ratio)
-        self.mmq_max_anchors = int(mmq_max_anchors)
-        self.mmq_patch_k = int(mmq_patch_k)
-        self.mmq_tangent_k = int(mmq_tangent_k)
-        self.mmq_rank_tol = float(mmq_rank_tol)
 
-        if self.weight_mode not in {"uniform", "knn", "moment2"}:
-            raise ValueError(f"weight_mode must be 'uniform', 'knn', or 'moment2', got {weight_mode}")
+        if self.weight_mode not in {"uniform", "knn"}:
+            raise ValueError(f"weight_mode must be 'uniform' or 'knn', got {weight_mode}")
 
         self.operator = SetEncoderOperator(
             input_size_src=3,
@@ -72,16 +62,6 @@ class SphereSignalReconstructor(nn.Module):
     ) -> torch.Tensor:
         if self.weight_mode == "uniform":
             return infer_uniform_weights(obs_coords, point_mask)
-        if self.weight_mode == "moment2":
-            return infer_moment2_weights(
-                obs_coords,
-                sensor_mask=point_mask,
-                anchor_ratio=self.mmq_anchor_ratio,
-                max_anchors=self.mmq_max_anchors,
-                patch_k=self.mmq_patch_k,
-                tangent_k=self.mmq_tangent_k,
-                rank_tol=self.mmq_rank_tol,
-            ).to(dtype=obs_coords.dtype)
 
         return infer_knn_density_weights(
             obs_coords,

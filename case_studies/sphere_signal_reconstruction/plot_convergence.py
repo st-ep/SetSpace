@@ -8,9 +8,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-COLORS = {"uniform": "#d95f02", "geometry_aware": "#1b9e77", "moment2": "#7570b3"}
-LABELS = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder", "moment2": "MMQ-2 encoder"}
-MARKERS = {"uniform": "s", "geometry_aware": "o", "moment2": "^"}
+COLORS = {"uniform": "#d95f02", "geometry_aware": "#1b9e77"}
+LABELS = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder"}
+MARKERS = {"uniform": "s", "geometry_aware": "o"}
 
 
 def load_metrics(path: Path) -> dict:
@@ -38,7 +38,7 @@ def plot_metrics(metrics: dict, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     point_counts = np.array([int(v) for v in metrics["point_counts"]], dtype=float)
-    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
+    model_order = [name for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     for ax in axes:

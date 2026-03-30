@@ -128,7 +128,7 @@ def _select_example_index(
     sampling_mode: str,
     candidate_count: int = 32,
 ) -> int:
-    comparison_model = "moment2" if "moment2" in models else "geometry_aware"
+    comparison_model = "geometry_aware"
     query_coords = dataset.get_query_coords(device=device).unsqueeze(0)
     best_index = 0
     best_gain = -float("inf")
@@ -174,7 +174,7 @@ def plot_qualitative(
     device = _resolve_device(None if device is None else str(device))
     if dataset is None:
         dataset = SphereSignalDataset(**metrics["dataset"])
-    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
+    model_order = [name for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
     if models is None:
         models = {}
         for model_name in model_order:
@@ -252,7 +252,7 @@ def plot_qualitative(
         norm=signal_norm,
         title=f"Shifted input ({shift_mode}, $M$={fixed_points})",
     )
-    title_map = {"uniform": "Uniform prediction", "geometry_aware": "kNN density prediction", "moment2": "MMQ-2 prediction"}
+    title_map = {"uniform": "Uniform prediction", "geometry_aware": "kNN density prediction"}
     for col, model_name in enumerate(model_order, start=2):
         ax = fig.add_subplot(gs[0, col], projection="3d")
         _render_surface(
@@ -277,7 +277,7 @@ def plot_qualitative(
         cmap=signal_cmap,
         norm=signal_norm,
     )
-    map_title_map = {"uniform": "Uniform map", "geometry_aware": "kNN density map", "moment2": "MMQ-2 map"}
+    map_title_map = {"uniform": "Uniform map", "geometry_aware": "kNN density map"}
     for col, model_name in enumerate(model_order, start=2):
         ax = fig.add_subplot(gs[1, col])
         _imshow_map(ax, pred_grids[model_name], title=map_title_map[model_name], cmap=signal_cmap, norm=signal_norm)
@@ -300,7 +300,7 @@ def plot_qualitative(
         cmap=signal_cmap,
         norm=signal_norm,
     )
-    err_title_map = {"uniform": "Uniform absolute error", "geometry_aware": "kNN density absolute error", "moment2": "MMQ-2 absolute error"}
+    err_title_map = {"uniform": "Uniform absolute error", "geometry_aware": "kNN density absolute error"}
     for col, model_name in enumerate(model_order, start=2):
         ax = fig.add_subplot(gs[2, col])
         _imshow_map(ax, err_grids[model_name], title=err_title_map[model_name], cmap=error_cmap, norm=error_norm)

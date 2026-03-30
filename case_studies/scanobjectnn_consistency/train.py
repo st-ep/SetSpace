@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument("--val_fraction", type=float, default=0.1)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
-    parser.add_argument("--weight_mode", choices=["uniform", "knn", "moment2"], default="knn")
+    parser.add_argument("--weight_mode", choices=["uniform", "knn"], default="knn")
     parser.add_argument("--train_points", type=int, default=512)
     parser.add_argument("--reference_points", type=int, default=512)
     parser.add_argument("--steps", type=int, default=3000)
@@ -73,11 +73,6 @@ def main():
         "weight_mode": args.weight_mode,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
-        "mmq_anchor_ratio": 0.125,
-        "mmq_max_anchors": 32,
-        "mmq_patch_k": 16,
-        "mmq_tangent_k": 16,
-        "mmq_rank_tol": 1e-6,
         "pointnext_width": 32,
         "pointnext_blocks": [1, 1, 1, 1, 1, 1],
         "pointnext_strides": [1, 2, 2, 2, 2, 1],
@@ -120,11 +115,6 @@ def main():
         weight_mode=args.weight_mode,
         knn_k=args.knn_k,
         intrinsic_dim=args.intrinsic_dim,
-        mmq_anchor_ratio=model_config["mmq_anchor_ratio"],
-        mmq_max_anchors=model_config["mmq_max_anchors"],
-        mmq_patch_k=model_config["mmq_patch_k"],
-        mmq_tangent_k=model_config["mmq_tangent_k"],
-        mmq_rank_tol=model_config["mmq_rank_tol"],
         pointnext_width=model_config["pointnext_width"],
         pointnext_blocks=tuple(model_config["pointnext_blocks"]),
         pointnext_strides=tuple(model_config["pointnext_strides"]),

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from case_studies.point_cloud_consistency.pointnext import PointNeXtClassifier
-from set_encoders import WeightedSetEncoder, infer_knn_density_weights, infer_moment2_weights, infer_uniform_weights
+from set_encoders import WeightedSetEncoder, infer_knn_density_weights, infer_uniform_weights
 
 
 class PointCloudSetPredictor(nn.Module):
@@ -24,28 +24,18 @@ class PointCloudSetPredictor(nn.Module):
         weight_mode: str = "uniform",
         knn_k: int = 8,
         intrinsic_dim: int = 2,
-        mmq_anchor_ratio: float = 0.125,
-        mmq_max_anchors: int = 32,
-        mmq_patch_k: int = 16,
-        mmq_tangent_k: int = 16,
-        mmq_rank_tol: float = 1e-6,
     ) -> None:
         super().__init__()
 
         self.weight_mode = weight_mode.lower()
         self.knn_k = int(knn_k)
         self.intrinsic_dim = int(intrinsic_dim)
-        self.mmq_anchor_ratio = float(mmq_anchor_ratio)
-        self.mmq_max_anchors = int(mmq_max_anchors)
-        self.mmq_patch_k = int(mmq_patch_k)
-        self.mmq_tangent_k = int(mmq_tangent_k)
-        self.mmq_rank_tol = float(mmq_rank_tol)
         self.n_tokens = int(n_tokens)
         self.token_dim = int(token_dim)
         self.output_dim = int(output_dim)
 
-        if self.weight_mode not in ["uniform", "knn", "moment2"]:
-            raise ValueError(f"weight_mode must be 'uniform', 'knn', or 'moment2', got {weight_mode}")
+        if self.weight_mode not in ["uniform", "knn"]:
+            raise ValueError(f"weight_mode must be 'uniform' or 'knn', got {weight_mode}")
 
         self.encoder = WeightedSetEncoder(
             n_tokens=self.n_tokens,
@@ -77,16 +67,6 @@ class PointCloudSetPredictor(nn.Module):
     ) -> torch.Tensor:
         if self.weight_mode == "uniform":
             return infer_uniform_weights(coords, point_mask)
-        if self.weight_mode == "moment2":
-            return infer_moment2_weights(
-                coords,
-                sensor_mask=point_mask,
-                anchor_ratio=self.mmq_anchor_ratio,
-                max_anchors=self.mmq_max_anchors,
-                patch_k=self.mmq_patch_k,
-                tangent_k=self.mmq_tangent_k,
-                rank_tol=self.mmq_rank_tol,
-            ).to(dtype=coords.dtype)
 
         return infer_knn_density_weights(
             coords,
@@ -160,22 +140,12 @@ def build_point_cloud_classifier(
     pointnext_sa_use_res: bool = True,
     pointnext_normalize_dp: bool = True,
     pointnext_head_hidden_dim: int = 256,
-    mmq_anchor_ratio: float = 0.125,
-    mmq_max_anchors: int = 32,
-    mmq_patch_k: int = 16,
-    mmq_tangent_k: int = 16,
-    mmq_rank_tol: float = 1e-6,
     **kwargs,
 ) -> nn.Module:
     backbone = backbone.lower()
     if backbone == "set_encoder":
         return PointCloudSetClassifier(
             activation_fn=activation_fn,
-            mmq_anchor_ratio=mmq_anchor_ratio,
-            mmq_max_anchors=mmq_max_anchors,
-            mmq_patch_k=mmq_patch_k,
-            mmq_tangent_k=mmq_tangent_k,
-            mmq_rank_tol=mmq_rank_tol,
             **kwargs,
         )
     if backbone == "pointnext":
@@ -196,7 +166,5 @@ def build_point_cloud_classifier(
             weight_mode=kwargs.get("weight_mode", "uniform"),
             density_k=kwargs.get("knn_k", 8),
             intrinsic_dim=kwargs.get("intrinsic_dim", 2),
-            mmq_tangent_k=int(mmq_tangent_k),
-            mmq_rank_tol=float(mmq_rank_tol),
         )
     raise ValueError(f"Unsupported classifier backbone: {backbone}")

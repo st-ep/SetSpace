@@ -79,11 +79,6 @@ def main():
         "normalize": args.normalize,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
-        "mmq_anchor_ratio": 0.125,
-        "mmq_max_anchors": 32,
-        "mmq_patch_k": 16,
-        "mmq_tangent_k": 16,
-        "mmq_rank_tol": 1e-6,
         "pointnext_width": 32,
         "pointnext_blocks": [1, 1, 1, 1, 1, 1],
         "pointnext_strides": [1, 2, 2, 2, 2, 1],
@@ -113,7 +108,7 @@ def main():
     }
 
     trained_models = {}
-    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn"), ("moment2", "moment2")]:
+    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn")]:
         model_config = {**base_model_config, "weight_mode": weight_mode}
         model = build_point_cloud_classifier(
             backbone=args.backbone,
@@ -130,11 +125,6 @@ def main():
             weight_mode=weight_mode,
             knn_k=args.knn_k,
             intrinsic_dim=args.intrinsic_dim,
-            mmq_anchor_ratio=base_model_config["mmq_anchor_ratio"],
-            mmq_max_anchors=base_model_config["mmq_max_anchors"],
-            mmq_patch_k=base_model_config["mmq_patch_k"],
-            mmq_tangent_k=base_model_config["mmq_tangent_k"],
-            mmq_rank_tol=base_model_config["mmq_rank_tol"],
             pointnext_width=base_model_config["pointnext_width"],
             pointnext_blocks=tuple(base_model_config["pointnext_blocks"]),
             pointnext_strides=tuple(base_model_config["pointnext_strides"]),

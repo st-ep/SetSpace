@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import torch
 
-from .mmq import solve_global_moment2_weights
-
 
 def _coerce_2d(
     xs: torch.Tensor,
@@ -191,64 +189,3 @@ def infer_knn_density_weights(
 
     return weights
 
-
-def infer_moment2_weights(
-    xs: torch.Tensor,
-    sensor_mask: torch.Tensor | None = None,
-    *,
-    anchor_ratio: float = 0.125,
-    max_anchors: int = 32,
-    patch_k: int = 16,
-    tangent_k: int = 16,
-    rank_tol: float = 1e-6,
-    eps: float = 1e-8,
-    return_diagnostics: bool = False,
-) -> torch.Tensor | tuple[torch.Tensor, list[dict]]:
-    if xs.dim() != 3:
-        raise ValueError(f"xs must be 3D (B, N, dx), got {xs.shape=}")
-
-    batch_size, n_sensors, _ = xs.shape
-    device, dtype = xs.device, xs.dtype
-    mask = _coerce_mask(xs, sensor_mask)
-
-    weights = torch.zeros((batch_size, n_sensors), device=device, dtype=dtype)
-    diagnostics: list[dict] = []
-
-    for b in range(batch_size):
-        if mask is None:
-            idx_valid = torch.arange(n_sensors, device=device)
-        else:
-            idx_valid = torch.nonzero(mask[b], as_tuple=False).squeeze(-1)
-        n_valid = int(idx_valid.numel())
-        if n_valid == 0:
-            diagnostics.append(
-                {
-                    "batch_index": int(b),
-                    "anchor_count": 0,
-                    "fallback": True,
-                    "residual": 0.0,
-                    "full_row_rank": False,
-                    "n_valid": 0,
-                }
-            )
-            continue
-
-        sample_coords = xs[b, idx_valid].detach()
-        sample_weights, sample_diag = solve_global_moment2_weights(
-            sample_coords,
-            anchor_ratio=anchor_ratio,
-            max_anchors=max_anchors,
-            patch_k=patch_k,
-            tangent_k=tangent_k,
-            rank_tol=rank_tol,
-            eps=eps,
-            return_diagnostics=True,
-        )
-        weights[b, idx_valid] = sample_weights.to(device=device, dtype=dtype)
-        sample_diag["batch_index"] = int(b)
-        sample_diag["n_valid"] = int(n_valid)
-        diagnostics.append(sample_diag)
-
-    if not return_diagnostics:
-        return weights
-    return weights, diagnostics

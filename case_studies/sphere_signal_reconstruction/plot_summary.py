@@ -20,9 +20,9 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 32) -> Non
     point_counts = [int(v) for v in metrics["point_counts"]]
     sampling_modes = metrics["sampling_modes"]
     fixed_points_key = str(fixed_points if fixed_points in point_counts else point_counts[0])
-    colors = {"uniform": "#d95f02", "geometry_aware": "#1b9e77", "moment2": "#7570b3"}
-    labels = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder", "moment2": "MMQ-2 encoder"}
-    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
+    colors = {"uniform": "#d95f02", "geometry_aware": "#1b9e77"}
+    labels = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder"}
+    model_order = [name for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.8))
 

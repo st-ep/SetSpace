@@ -91,11 +91,6 @@ def main():
         "normalize": args.normalize,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
-        "mmq_anchor_ratio": 0.125,
-        "mmq_max_anchors": 32,
-        "mmq_patch_k": 16,
-        "mmq_tangent_k": 16,
-        "mmq_rank_tol": 1e-6,
     }
     training_config = {
         "task": "regression",
@@ -112,7 +107,7 @@ def main():
     }
 
     trained_models = {}
-    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn"), ("moment2", "moment2")]:
+    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn")]:
         model_config = {**base_model_config, "weight_mode": weight_mode}
         model = PointCloudMeanRegressor(**{k: v for k, v in model_config.items() if k not in {"activation_fn", "task"}})
         summary = train_regressor(

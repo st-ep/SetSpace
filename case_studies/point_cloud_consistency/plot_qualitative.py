@@ -14,11 +14,10 @@ from case_studies.point_cloud_consistency.benchmark import load_model_checkpoint
 from case_studies.point_cloud_consistency.common import load_json
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
 
-MODEL_ORDER = ("uniform", "geometry_aware", "moment2")
+MODEL_ORDER = ("uniform", "geometry_aware")
 MODEL_LABELS = {
     "uniform": "Uniform encoder",
     "geometry_aware": "kNN density encoder",
-    "moment2": "MMQ-2 encoder",
 }
 MODE_OFFSETS = {
     "uniform": 11,
@@ -119,7 +118,7 @@ def _score_example(
     fixed_points: int,
     sampling_modes: list[str],
 ) -> tuple[int, int, float, float]:
-    comparison_model = "moment2" if "moment2" in models else "geometry_aware"
+    comparison_model = "geometry_aware"
     gain_modes = 0
     correct_gap = 0
     margin_gain = 0.0

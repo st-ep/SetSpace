@@ -62,7 +62,7 @@ def _score_candidate(
     fixed_points: int,
     nonuniform_modes: list[str],
 ) -> float:
-    comparison_model = "moment2" if "moment2" in models else "geometry_aware"
+    comparison_model = "geometry_aware"
     label = dataset._record("test", local_index).label
     score = 0.0
     for mode in nonuniform_modes:
@@ -155,7 +155,7 @@ def plot_qualitative(
     device = _resolve_device(None if device is None else str(device))
     if dataset is None:
         dataset = ScanObjectNNConsistencyDataset(**metrics["dataset"])
-    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
+    model_order = [name for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
     if models is None:
         models = {}
         for model_name in model_order:
@@ -212,7 +212,6 @@ def plot_qualitative(
         style = {
             "uniform": ("Uniform", "#d95f02"),
             "geometry_aware": ("kNN density", "#1b9e77"),
-            "moment2": ("MMQ-2", "#7570b3"),
         }
         for model_name in model_order:
             label_name, color = style[model_name]

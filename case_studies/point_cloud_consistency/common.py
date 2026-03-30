@@ -27,11 +27,6 @@ def build_model_from_config(model_config: dict) -> torch.nn.Module:
         "weight_mode": model_config["weight_mode"],
         "knn_k": model_config["knn_k"],
         "intrinsic_dim": model_config["intrinsic_dim"],
-        "mmq_anchor_ratio": model_config.get("mmq_anchor_ratio", 0.125),
-        "mmq_max_anchors": model_config.get("mmq_max_anchors", 32),
-        "mmq_patch_k": model_config.get("mmq_patch_k", 16),
-        "mmq_tangent_k": model_config.get("mmq_tangent_k", 16),
-        "mmq_rank_tol": model_config.get("mmq_rank_tol", 1e-6),
     }
     task = model_config.get("task", "classification").lower()
     if task == "regression":
@@ -61,11 +56,6 @@ def build_model_from_config(model_config: dict) -> torch.nn.Module:
         "pointnext_sa_use_res": model_config.get("pointnext_sa_use_res", True),
         "pointnext_normalize_dp": model_config.get("pointnext_normalize_dp", True),
         "pointnext_head_hidden_dim": model_config.get("pointnext_head_hidden_dim", 256),
-        "mmq_anchor_ratio": model_config.get("mmq_anchor_ratio", 0.125),
-        "mmq_max_anchors": model_config.get("mmq_max_anchors", 32),
-        "mmq_patch_k": model_config.get("mmq_patch_k", 16),
-        "mmq_tangent_k": model_config.get("mmq_tangent_k", 16),
-        "mmq_rank_tol": model_config.get("mmq_rank_tol", 1e-6),
     }
     set_encoder_kwargs = {
         "n_tokens": model_config.get("n_tokens", 16),

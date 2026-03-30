@@ -3,8 +3,6 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from set_encoders.mmq import solve_local_moment2_weights
-
 
 def _gather_points(points: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
     if points.dim() != 3:
@@ -140,8 +138,6 @@ class PointNeXtLocalAggregation(nn.Module):
         weight_mode: str,
         density_k: int,
         intrinsic_dim: int,
-        mmq_tangent_k: int,
-        mmq_rank_tol: float,
         normalize_dp: bool,
     ) -> None:
         super().__init__()
@@ -150,8 +146,6 @@ class PointNeXtLocalAggregation(nn.Module):
         self.weight_mode = weight_mode.lower()
         self.density_k = int(density_k)
         self.intrinsic_dim = int(intrinsic_dim)
-        self.mmq_tangent_k = int(mmq_tangent_k)
-        self.mmq_rank_tol = float(mmq_rank_tol)
         self.normalize_dp = bool(normalize_dp)
         self.message_net = _make_conv2d_block(channels + 3, channels, activation=True)
 
@@ -174,16 +168,7 @@ class PointNeXtLocalAggregation(nn.Module):
                 intrinsic_dim=self.intrinsic_dim,
             )
             return torch.sum(messages * weights.unsqueeze(1), dim=-1)
-        if self.weight_mode != "moment2":
-            raise ValueError(f"Unsupported weight_mode: {self.weight_mode}")
-
-        weights = solve_local_moment2_weights(
-            coords,
-            grouped_coords,
-            tangent_k=self.mmq_tangent_k,
-            rank_tol=self.mmq_rank_tol,
-        )
-        return torch.sum(messages * weights.unsqueeze(1), dim=-1)
+        raise ValueError(f"Unsupported weight_mode: {self.weight_mode}")
 
 
 class PointNeXtInvResBlock(nn.Module):
@@ -197,8 +182,6 @@ class PointNeXtInvResBlock(nn.Module):
         weight_mode: str,
         density_k: int,
         intrinsic_dim: int,
-        mmq_tangent_k: int,
-        mmq_rank_tol: float,
         normalize_dp: bool,
     ) -> None:
         super().__init__()
@@ -210,8 +193,6 @@ class PointNeXtInvResBlock(nn.Module):
             weight_mode=weight_mode,
             density_k=density_k,
             intrinsic_dim=intrinsic_dim,
-            mmq_tangent_k=mmq_tangent_k,
-            mmq_rank_tol=mmq_rank_tol,
             normalize_dp=normalize_dp,
         )
         self.pointwise = nn.Sequential(
@@ -240,8 +221,6 @@ class PointNeXtSetAbstraction(nn.Module):
         weight_mode: str,
         density_k: int,
         intrinsic_dim: int,
-        mmq_tangent_k: int,
-        mmq_rank_tol: float,
         normalize_dp: bool,
         is_head: bool = False,
         global_pool: bool = False,
@@ -254,8 +233,6 @@ class PointNeXtSetAbstraction(nn.Module):
         self.weight_mode = weight_mode.lower()
         self.density_k = int(density_k)
         self.intrinsic_dim = int(intrinsic_dim)
-        self.mmq_tangent_k = int(mmq_tangent_k)
-        self.mmq_rank_tol = float(mmq_rank_tol)
         self.normalize_dp = bool(normalize_dp)
         self.is_head = bool(is_head)
         self.global_pool = bool(global_pool)
@@ -294,15 +271,7 @@ class PointNeXtSetAbstraction(nn.Module):
                 intrinsic_dim=self.intrinsic_dim,
             )
             return torch.sum(messages * weights.unsqueeze(1), dim=-1)
-        if self.weight_mode != "moment2":
-            raise ValueError(f"Unsupported weight_mode: {self.weight_mode}")
-        weights = solve_local_moment2_weights(
-            centers,
-            grouped_coords,
-            tangent_k=self.mmq_tangent_k,
-            rank_tol=self.mmq_rank_tol,
-        )
-        return torch.sum(messages * weights.unsqueeze(1), dim=-1)
+        raise ValueError(f"Unsupported weight_mode: {self.weight_mode}")
 
     def forward(self, coords: torch.Tensor, feats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.is_head:
@@ -361,13 +330,11 @@ class PointNeXtClassifier(nn.Module):
         weight_mode: str = "uniform",
         density_k: int = 8,
         intrinsic_dim: int = 2,
-        mmq_tangent_k: int = 16,
-        mmq_rank_tol: float = 1e-6,
         normalize_dp: bool = True,
     ) -> None:
         super().__init__()
-        if weight_mode.lower() not in {"uniform", "knn", "moment2"}:
-            raise ValueError(f"weight_mode must be 'uniform', 'knn', or 'moment2', got {weight_mode}")
+        if weight_mode.lower() not in {"uniform", "knn"}:
+            raise ValueError(f"weight_mode must be 'uniform' or 'knn', got {weight_mode}")
         if len(blocks) != len(strides):
             raise ValueError("blocks and strides must have the same length.")
         if len(blocks) < 2:
@@ -408,8 +375,6 @@ class PointNeXtClassifier(nn.Module):
                 weight_mode=self.weight_mode,
                 density_k=int(density_k),
                 intrinsic_dim=int(intrinsic_dim),
-                mmq_tangent_k=int(mmq_tangent_k),
-                mmq_rank_tol=float(mmq_rank_tol),
                 normalize_dp=normalize_dp,
                 is_head=is_head,
                 global_pool=is_global,
@@ -427,8 +392,6 @@ class PointNeXtClassifier(nn.Module):
                             weight_mode=self.weight_mode,
                             density_k=int(density_k),
                             intrinsic_dim=int(intrinsic_dim),
-                            mmq_tangent_k=int(mmq_tangent_k),
-                            mmq_rank_tol=float(mmq_rank_tol),
                             normalize_dp=normalize_dp,
                         )
                     )
