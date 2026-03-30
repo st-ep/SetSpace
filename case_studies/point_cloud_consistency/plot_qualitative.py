@@ -85,15 +85,28 @@ def _leave_one_out_attribution(
     with torch.no_grad():
         full_logits = model(coords, values)
         target_logit = full_logits[0, int(target_class)]
+        expanded_coords = coords.expand(n_points, -1, -1)
+        expanded_values = values.expand(n_points, -1, -1)
 
-        masks = torch.ones((n_points, n_points), device=coords.device, dtype=torch.bool)
-        masks.fill_diagonal_(False)
-        masked_logits = model(
-            coords.expand(n_points, -1, -1),
-            values.expand(n_points, -1, -1),
-            point_mask=masks,
-        )
-        attributions = target_logit - masked_logits[:, int(target_class)]
+        try:
+            masks = torch.ones((n_points, n_points), device=coords.device, dtype=torch.bool)
+            masks.fill_diagonal_(False)
+            ablated_logits = model(
+                expanded_coords,
+                expanded_values,
+                point_mask=masks,
+            )
+        except (TypeError, ValueError):
+            # PointNeXt-style backbones use fixed-size neighborhoods and do not
+            # support per-example point masks. Fall back to zeroing each point's
+            # observed value while keeping the geometry fixed so qualitative
+            # plots still render for those backbones.
+            ablated_values = expanded_values.clone()
+            point_ids = torch.arange(n_points, device=coords.device)
+            ablated_values[point_ids, point_ids] = 0.0
+            ablated_logits = model(expanded_coords, ablated_values)
+
+        attributions = target_logit - ablated_logits[:, int(target_class)]
     return attributions.cpu().numpy()
 
 
@@ -118,7 +131,7 @@ def _score_example(
     fixed_points: int,
     sampling_modes: list[str],
 ) -> tuple[int, int, float, float]:
-    comparison_model = "geometry_aware"
+    comparison_model = "geometry_aware" if "geometry_aware" in models else "uniform"
     gain_modes = 0
     correct_gap = 0
     margin_gain = 0.0
@@ -276,7 +289,7 @@ def plot_qualitative_responses(
     fig = plt.figure(figsize=(16.8, 3.0 + 2.05 * n_rows))
     gs = fig.add_gridspec(n_rows, len(sampling_modes), hspace=0.18, wspace=0.02)
 
-    row_labels = ["Ground-truth field"] + [f"{MODEL_LABELS[name]}\nleave-one-out attribution" for name in model_order]
+    row_labels = ["Ground-truth field"] + [f"{MODEL_LABELS[name]}\npoint ablation attribution" for name in model_order]
     row_names = [None] + model_order
     marker_size = max(10.0, 1100.0 / float(fixed_points))
     annotation_specs: list[tuple[plt.Axes, str]] = []
@@ -348,7 +361,7 @@ def plot_qualitative_responses(
         0.02,
         0.02,
         "Each column is the same object resampled under a different shift mode. "
-        "Model rows show leave-one-out point attribution for the true class.",
+        "Model rows show single-point ablation attribution for the true class.",
         fontsize=10,
     )
 

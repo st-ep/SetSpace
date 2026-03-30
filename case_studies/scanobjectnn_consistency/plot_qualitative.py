@@ -62,7 +62,7 @@ def _score_candidate(
     fixed_points: int,
     nonuniform_modes: list[str],
 ) -> float:
-    comparison_model = "geometry_aware"
+    comparison_model = "geometry_aware" if "geometry_aware" in models else "uniform"
     label = dataset._record("test", local_index).label
     score = 0.0
     for mode in nonuniform_modes:

@@ -149,6 +149,9 @@ def build_point_cloud_classifier(
             **kwargs,
         )
     if backbone == "pointnext":
+        weight_mode = kwargs.get("weight_mode", "uniform")
+        if str(weight_mode).lower() != "uniform":
+            raise ValueError("PointNeXtClassifier only supports the original uniform neighborhood reduction.")
         return PointNeXtClassifier(
             width=int(pointnext_width),
             blocks=tuple(int(v) for v in pointnext_blocks),
@@ -163,8 +166,5 @@ def build_point_cloud_classifier(
             head_hidden_dim=int(pointnext_head_hidden_dim),
             num_classes=kwargs["num_classes"],
             value_input_dim=kwargs.get("value_input_dim", 1),
-            weight_mode=kwargs.get("weight_mode", "uniform"),
-            density_k=kwargs.get("knn_k", 8),
-            intrinsic_dim=kwargs.get("intrinsic_dim", 2),
         )
     raise ValueError(f"Unsupported classifier backbone: {backbone}")

@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument("--val_fraction", type=float, default=0.1)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
-    parser.add_argument("--weight_mode", choices=["uniform", "knn"], default="knn")
+    parser.add_argument("--weight_mode", choices=["uniform", "knn"], default=None)
     parser.add_argument("--train_points", type=int, default=512)
     parser.add_argument("--reference_points", type=int, default=512)
     parser.add_argument("--steps", type=int, default=3000)
@@ -48,6 +48,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.weight_mode is None:
+        args.weight_mode = "uniform" if args.backbone == "pointnext" else "knn"
+    if args.backbone == "pointnext" and args.weight_mode != "uniform":
+        raise ValueError("PointNeXt uses the original uniform neighborhood reduction; weight_mode must be 'uniform'.")
     set_random_seed(args.seed)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 

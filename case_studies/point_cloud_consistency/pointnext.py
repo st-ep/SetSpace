@@ -86,30 +86,6 @@ def _ball_query_indices(
     return torch.where(valid, topk.indices, knn_idx)
 
 
-def _group_density_weights(
-    grouped_coords: torch.Tensor,
-    *,
-    density_k: int,
-    intrinsic_dim: int,
-    eps: float = 1e-8,
-) -> torch.Tensor:
-    if grouped_coords.dim() != 4:
-        raise ValueError(f"grouped_coords must be (B, M, K, 3), got {grouped_coords.shape=}")
-
-    batch_size, n_query, n_neighbors, _ = grouped_coords.shape
-    if n_neighbors == 1:
-        return torch.ones((batch_size, n_query, n_neighbors), device=grouped_coords.device, dtype=grouped_coords.dtype)
-
-    flat = grouped_coords.reshape(batch_size * n_query, n_neighbors, grouped_coords.shape[-1])
-    dists = torch.cdist(flat, flat)
-    dists.diagonal(dim1=1, dim2=2).fill_(float("inf"))
-    neighbor_rank = min(max(int(density_k), 1), n_neighbors - 1)
-    kth = torch.topk(dists, k=neighbor_rank, largest=False).values[:, :, -1]
-    raw = kth.clamp_min(eps).pow(int(intrinsic_dim))
-    weights = raw / raw.sum(dim=1, keepdim=True).clamp_min(eps)
-    return weights.reshape(batch_size, n_query, n_neighbors)
-
-
 def _make_conv1d_block(in_dim: int, out_dim: int, *, activation: bool) -> nn.Sequential:
     layers: list[nn.Module] = [nn.Conv1d(in_dim, out_dim, kernel_size=1, bias=False), nn.BatchNorm1d(out_dim)]
     if activation:
@@ -135,17 +111,11 @@ class PointNeXtLocalAggregation(nn.Module):
         channels: int,
         radius: float,
         nsample: int,
-        weight_mode: str,
-        density_k: int,
-        intrinsic_dim: int,
         normalize_dp: bool,
     ) -> None:
         super().__init__()
         self.radius = float(radius)
         self.nsample = int(nsample)
-        self.weight_mode = weight_mode.lower()
-        self.density_k = int(density_k)
-        self.intrinsic_dim = int(intrinsic_dim)
         self.normalize_dp = bool(normalize_dp)
         self.message_net = _make_conv2d_block(channels + 3, channels, activation=True)
 
@@ -158,17 +128,7 @@ class PointNeXtLocalAggregation(nn.Module):
         grouped_feats = _gather_features(feats, idx)
         message_input = torch.cat([rel_coords.permute(0, 3, 1, 2), grouped_feats], dim=1)
         messages = self.message_net(message_input)
-
-        if self.weight_mode == "uniform":
-            return messages.max(dim=-1).values
-        if self.weight_mode == "knn":
-            weights = _group_density_weights(
-                grouped_coords,
-                density_k=self.density_k,
-                intrinsic_dim=self.intrinsic_dim,
-            )
-            return torch.sum(messages * weights.unsqueeze(1), dim=-1)
-        raise ValueError(f"Unsupported weight_mode: {self.weight_mode}")
+        return messages.max(dim=-1).values
 
 
 class PointNeXtInvResBlock(nn.Module):
@@ -179,9 +139,6 @@ class PointNeXtInvResBlock(nn.Module):
         radius: float,
         nsample: int,
         expansion: int,
-        weight_mode: str,
-        density_k: int,
-        intrinsic_dim: int,
         normalize_dp: bool,
     ) -> None:
         super().__init__()
@@ -190,9 +147,6 @@ class PointNeXtInvResBlock(nn.Module):
             channels=channels,
             radius=radius,
             nsample=nsample,
-            weight_mode=weight_mode,
-            density_k=density_k,
-            intrinsic_dim=intrinsic_dim,
             normalize_dp=normalize_dp,
         )
         self.pointwise = nn.Sequential(
@@ -218,9 +172,6 @@ class PointNeXtSetAbstraction(nn.Module):
         nsample: int,
         layers: int,
         use_res: bool,
-        weight_mode: str,
-        density_k: int,
-        intrinsic_dim: int,
         normalize_dp: bool,
         is_head: bool = False,
         global_pool: bool = False,
@@ -230,9 +181,6 @@ class PointNeXtSetAbstraction(nn.Module):
         self.radius = None if radius is None else float(radius)
         self.nsample = int(nsample)
         self.use_res = bool(use_res)
-        self.weight_mode = weight_mode.lower()
-        self.density_k = int(density_k)
-        self.intrinsic_dim = int(intrinsic_dim)
         self.normalize_dp = bool(normalize_dp)
         self.is_head = bool(is_head)
         self.global_pool = bool(global_pool)
@@ -261,17 +209,8 @@ class PointNeXtSetAbstraction(nn.Module):
             self.activation = nn.ReLU(inplace=True)
 
     def _reduce(self, messages: torch.Tensor, grouped_coords: torch.Tensor, centers: torch.Tensor) -> torch.Tensor:
-        # `uniform` follows PointNeXt's max reduction; `knn` is our research variant.
-        if self.weight_mode == "uniform":
-            return messages.max(dim=-1).values
-        if self.weight_mode == "knn":
-            weights = _group_density_weights(
-                grouped_coords,
-                density_k=self.density_k,
-                intrinsic_dim=self.intrinsic_dim,
-            )
-            return torch.sum(messages * weights.unsqueeze(1), dim=-1)
-        raise ValueError(f"Unsupported weight_mode: {self.weight_mode}")
+        del grouped_coords, centers
+        return messages.max(dim=-1).values
 
     def forward(self, coords: torch.Tensor, feats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.is_head:
@@ -327,20 +266,13 @@ class PointNeXtClassifier(nn.Module):
         sa_layers: int = 2,
         sa_use_res: bool = True,
         head_hidden_dim: int = 256,
-        weight_mode: str = "uniform",
-        density_k: int = 8,
-        intrinsic_dim: int = 2,
         normalize_dp: bool = True,
     ) -> None:
         super().__init__()
-        if weight_mode.lower() not in {"uniform", "knn"}:
-            raise ValueError(f"weight_mode must be 'uniform' or 'knn', got {weight_mode}")
         if len(blocks) != len(strides):
             raise ValueError("blocks and strides must have the same length.")
         if len(blocks) < 2:
             raise ValueError("PointNeXtClassifier expects at least a head stage and a global stage.")
-
-        self.weight_mode = weight_mode.lower()
         self.value_input_dim = int(value_input_dim)
 
         channels: list[int] = []
@@ -372,9 +304,6 @@ class PointNeXtClassifier(nn.Module):
                 nsample=current_nsample,
                 layers=1 if (n_blocks > 1 and not is_head) else int(sa_layers),
                 use_res=use_res,
-                weight_mode=self.weight_mode,
-                density_k=int(density_k),
-                intrinsic_dim=int(intrinsic_dim),
                 normalize_dp=normalize_dp,
                 is_head=is_head,
                 global_pool=is_global,
@@ -389,9 +318,6 @@ class PointNeXtClassifier(nn.Module):
                             radius=current_radius,
                             nsample=current_nsample,
                             expansion=int(expansion),
-                            weight_mode=self.weight_mode,
-                            density_k=int(density_k),
-                            intrinsic_dim=int(intrinsic_dim),
                             normalize_dp=normalize_dp,
                         )
                     )

@@ -49,6 +49,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.backbone == "pointnext" and args.weight_mode != "uniform":
+        raise ValueError("PointNeXt uses the original uniform neighborhood reduction; weight_mode must be 'uniform'.")
     set_random_seed(args.seed)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 

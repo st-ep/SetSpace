@@ -107,8 +107,9 @@ def main():
         "seed": args.seed,
     }
 
+    model_specs = [("uniform", "uniform")] if args.backbone == "pointnext" else [("uniform", "uniform"), ("geometry_aware", "knn")]
     trained_models = {}
-    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn")]:
+    for model_name, weight_mode in model_specs:
         model_config = {**base_model_config, "weight_mode": weight_mode}
         model = build_point_cloud_classifier(
             backbone=args.backbone,
