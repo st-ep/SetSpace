@@ -21,6 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate point-cloud mean-regression checkpoints under density shifts.")
     parser.add_argument("--uniform_checkpoint", required=True)
     parser.add_argument("--geometry_checkpoint", required=True)
+    parser.add_argument("--moment2_checkpoint", default=None)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--output_path", default=str(REPO_ROOT / "results" / "point_cloud_mean_regression_metrics.json"))
     parser.add_argument("--reference_points", type=int, default=2048)
@@ -36,17 +37,24 @@ def main():
     args = parse_args()
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
-    uniform_model, uniform_cfg = load_model_checkpoint(Path(args.uniform_checkpoint), device)
-    geometry_model, geometry_cfg = load_model_checkpoint(Path(args.geometry_checkpoint), device)
+    checkpoints = [
+        ("uniform", args.uniform_checkpoint),
+        ("geometry_aware", args.geometry_checkpoint),
+    ]
+    if args.moment2_checkpoint:
+        checkpoints.append(("moment2", args.moment2_checkpoint))
 
-    if uniform_cfg["dataset"] != geometry_cfg["dataset"]:
-        raise ValueError("Uniform and geometry-aware checkpoints must use the same dataset configuration.")
+    loaded = [(name, *load_model_checkpoint(Path(checkpoint_dir), device), checkpoint_dir) for name, checkpoint_dir in checkpoints]
+    base_cfg = loaded[0][2]
+    for name, _model, cfg, _checkpoint_dir in loaded[1:]:
+        if cfg["dataset"] != base_cfg["dataset"]:
+            raise ValueError(f"Checkpoint '{name}' must use the same dataset configuration as the uniform checkpoint.")
 
-    dataset = build_dataset_from_config(uniform_cfg["dataset"])
+    dataset = build_dataset_from_config(base_cfg["dataset"])
     payload = {
         "task": "mean_regression",
-        "dataset": uniform_cfg["dataset"],
-        "training": uniform_cfg.get("training", {}),
+        "dataset": base_cfg["dataset"],
+        "training": base_cfg.get("training", {}),
         "reference_points": args.reference_points,
         "n_resamples": args.n_resamples,
         "point_counts": args.point_counts,
@@ -54,10 +62,7 @@ def main():
         "models": {},
     }
 
-    for name, model, checkpoint_dir in [
-        ("uniform", uniform_model, args.uniform_checkpoint),
-        ("geometry_aware", geometry_model, args.geometry_checkpoint),
-    ]:
+    for name, model, _cfg, checkpoint_dir in loaded:
         summary = evaluate_regressor(
             model,
             dataset,

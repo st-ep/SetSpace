@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--query_points", type=int, default=1024)
     parser.add_argument("--train_points", type=int, default=128)
     parser.add_argument("--train_sampling_mode", default="uniform")
-    parser.add_argument("--weight_mode", choices=["uniform", "knn"], default="uniform")
+    parser.add_argument("--weight_mode", choices=["uniform", "knn", "moment2"], default="uniform")
     parser.add_argument("--steps", type=int, default=1500)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -78,6 +78,11 @@ def main():
         "use_deeponet_bias": not args.no_deeponet_bias,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
+        "mmq_anchor_ratio": 0.125,
+        "mmq_max_anchors": 32,
+        "mmq_patch_k": 16,
+        "mmq_tangent_k": 16,
+        "mmq_rank_tol": 1e-6,
     }
     model = SphereSignalReconstructor(**{k: v for k, v in model_config.items() if k != "activation_fn"})
     training_summary = train_reconstructor(
@@ -121,7 +126,7 @@ def main():
         training_summary=training_summary,
     )
     print(f"Saved checkpoint to {output_dir}")
-    print(f"Best validation RMSE: {training_summary['best_val_rmse']:.4f}")
+    print(f"Best validation score: {training_summary['best_val_score']:.4f}")
 
 
 if __name__ == "__main__":

@@ -128,6 +128,7 @@ def _select_example_index(
     sampling_mode: str,
     candidate_count: int = 32,
 ) -> int:
+    comparison_model = "moment2" if "moment2" in models else "geometry_aware"
     query_coords = dataset.get_query_coords(device=device).unsqueeze(0)
     best_index = 0
     best_gain = -float("inf")
@@ -148,11 +149,11 @@ def _select_example_index(
         target = dataset.get_query_targets("test", torch.tensor([local_index]), standardized=True, device=device)
         with torch.no_grad():
             pred_uniform = models["uniform"](obs_coords, obs_values, query_coords)
-            pred_geom = models["geometry_aware"](obs_coords, obs_values, query_coords)
+            pred_cmp = models[comparison_model](obs_coords, obs_values, query_coords)
         target_raw = dataset.destandardize_values(target).cpu()
         err_uniform = (dataset.destandardize_values(pred_uniform).cpu() - target_raw).square().mean().sqrt().item()
-        err_geom = (dataset.destandardize_values(pred_geom).cpu() - target_raw).square().mean().sqrt().item()
-        gain = err_uniform - err_geom
+        err_cmp = (dataset.destandardize_values(pred_cmp).cpu() - target_raw).square().mean().sqrt().item()
+        gain = err_uniform - err_cmp
         if gain > best_gain:
             best_gain = gain
             best_index = local_index
@@ -173,9 +174,10 @@ def plot_qualitative(
     device = _resolve_device(None if device is None else str(device))
     if dataset is None:
         dataset = SphereSignalDataset(**metrics["dataset"])
+    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
     if models is None:
         models = {}
-        for model_name in ["uniform", "geometry_aware"]:
+        for model_name in model_order:
             model, _ = load_model_checkpoint(Path(metrics["models"][model_name]["checkpoint_dir"]), device)
             models[model_name] = model
 
@@ -217,21 +219,27 @@ def plot_qualitative(
     )
 
     target_grid_raw = dataset.evaluate_split_object_raw("test", example_index, query_grid).reshape(lat_grid.shape).cpu().numpy()
+    pred_grids = {}
     with torch.no_grad():
-        pred_uniform = dataset.destandardize_values(models["uniform"](obs_coords, obs_values, query_grid_device)).cpu().reshape(lat_grid.shape).numpy()
-        pred_geom = dataset.destandardize_values(models["geometry_aware"](obs_coords, obs_values, query_grid_device)).cpu().reshape(lat_grid.shape).numpy()
-    err_uniform = np.abs(pred_uniform - target_grid_raw)
-    err_geom = np.abs(pred_geom - target_grid_raw)
+        for model_name in model_order:
+            pred_grids[model_name] = (
+                dataset.destandardize_values(models[model_name](obs_coords, obs_values, query_grid_device))
+                .cpu()
+                .reshape(lat_grid.shape)
+                .numpy()
+            )
+    err_grids = {model_name: np.abs(pred_grids[model_name] - target_grid_raw) for model_name in model_order}
 
     scale = float(np.quantile(np.abs(target_grid_raw), 0.98))
-    err_scale = float(np.quantile(np.concatenate([err_uniform.reshape(-1), err_geom.reshape(-1)]), 0.98))
+    err_scale = float(np.quantile(np.concatenate([err.reshape(-1) for err in err_grids.values()]), 0.98))
     signal_norm = colors.TwoSlopeNorm(vcenter=0.0, vmin=-scale, vmax=scale)
     error_norm = colors.Normalize(vmin=0.0, vmax=max(err_scale, 1e-6))
     signal_cmap = plt.get_cmap("coolwarm")
     error_cmap = plt.get_cmap("magma")
 
-    fig = plt.figure(figsize=(16.5, 10.5))
-    gs = fig.add_gridspec(3, 4, hspace=0.18, wspace=0.06)
+    n_cols = 2 + len(model_order)
+    fig = plt.figure(figsize=(3.8 * n_cols, 10.5))
+    gs = fig.add_gridspec(3, n_cols, hspace=0.18, wspace=0.06)
 
     ax = fig.add_subplot(gs[0, 0], projection="3d")
     _render_surface(ax, x_grid, y_grid, z_grid, target_grid_raw, cmap=signal_cmap, norm=signal_norm, title="Ground truth")
@@ -244,10 +252,19 @@ def plot_qualitative(
         norm=signal_norm,
         title=f"Shifted input ({shift_mode}, $M$={fixed_points})",
     )
-    ax = fig.add_subplot(gs[0, 2], projection="3d")
-    _render_surface(ax, x_grid, y_grid, z_grid, pred_uniform, cmap=signal_cmap, norm=signal_norm, title="Uniform prediction")
-    ax = fig.add_subplot(gs[0, 3], projection="3d")
-    _render_surface(ax, x_grid, y_grid, z_grid, pred_geom, cmap=signal_cmap, norm=signal_norm, title="Geometry-aware prediction")
+    title_map = {"uniform": "Uniform prediction", "geometry_aware": "kNN density prediction", "moment2": "MMQ-2 prediction"}
+    for col, model_name in enumerate(model_order, start=2):
+        ax = fig.add_subplot(gs[0, col], projection="3d")
+        _render_surface(
+            ax,
+            x_grid,
+            y_grid,
+            z_grid,
+            pred_grids[model_name],
+            cmap=signal_cmap,
+            norm=signal_norm,
+            title=title_map[model_name],
+        )
 
     ax = fig.add_subplot(gs[1, 0])
     _imshow_map(ax, target_grid_raw, title="Ground truth map", cmap=signal_cmap, norm=signal_norm)
@@ -260,10 +277,10 @@ def plot_qualitative(
         cmap=signal_cmap,
         norm=signal_norm,
     )
-    ax = fig.add_subplot(gs[1, 2])
-    _imshow_map(ax, pred_uniform, title="Uniform map", cmap=signal_cmap, norm=signal_norm)
-    ax = fig.add_subplot(gs[1, 3])
-    _imshow_map(ax, pred_geom, title="Geometry-aware map", cmap=signal_cmap, norm=signal_norm)
+    map_title_map = {"uniform": "Uniform map", "geometry_aware": "kNN density map", "moment2": "MMQ-2 map"}
+    for col, model_name in enumerate(model_order, start=2):
+        ax = fig.add_subplot(gs[1, col])
+        _imshow_map(ax, pred_grids[model_name], title=map_title_map[model_name], cmap=signal_cmap, norm=signal_norm)
 
     ax = fig.add_subplot(gs[2, 0], projection="3d")
     _render_scatter_3d(
@@ -283,10 +300,10 @@ def plot_qualitative(
         cmap=signal_cmap,
         norm=signal_norm,
     )
-    ax = fig.add_subplot(gs[2, 2])
-    _imshow_map(ax, err_uniform, title="Uniform absolute error", cmap=error_cmap, norm=error_norm)
-    ax = fig.add_subplot(gs[2, 3])
-    _imshow_map(ax, err_geom, title="Geometry-aware absolute error", cmap=error_cmap, norm=error_norm)
+    err_title_map = {"uniform": "Uniform absolute error", "geometry_aware": "kNN density absolute error", "moment2": "MMQ-2 absolute error"}
+    for col, model_name in enumerate(model_order, start=2):
+        ax = fig.add_subplot(gs[2, col])
+        _imshow_map(ax, err_grids[model_name], title=err_title_map[model_name], cmap=error_cmap, norm=error_norm)
 
     signal_cax = fig.add_axes([0.92, 0.56, 0.015, 0.28])
     signal_sm = plt.cm.ScalarMappable(norm=signal_norm, cmap=signal_cmap)

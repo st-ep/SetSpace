@@ -21,13 +21,14 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
     sampling_modes = metrics["sampling_modes"]
     fixed_points_key = str(fixed_points if fixed_points in point_counts else point_counts[0])
 
-    colors = {"uniform": "#d95f02", "geometry_aware": "#1b9e77"}
-    labels = {"uniform": "Uniform encoder", "geometry_aware": "Geometry-aware encoder"}
+    colors = {"uniform": "#d95f02", "geometry_aware": "#1b9e77", "moment2": "#7570b3"}
+    labels = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder", "moment2": "MMQ-2 encoder"}
+    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.8))
 
     ax = axes[0]
-    for model_name in ["uniform", "geometry_aware"]:
+    for model_name in model_order:
         agg = metrics["models"][model_name]["metrics"]["aggregate"]
         y = [agg["worst_case_accuracy"][str(p)] for p in point_counts]
         ax.plot(point_counts, y, marker="o", lw=2.2, ms=6, color=colors[model_name], label=labels[model_name])
@@ -38,7 +39,7 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
     ax.legend(frameon=False)
 
     ax = axes[1]
-    for model_name in ["uniform", "geometry_aware"]:
+    for model_name in model_order:
         agg = metrics["models"][model_name]["metrics"]["aggregate"]
         y = [agg["avg_nonuniform_embedding_drift"][str(p)] for p in point_counts]
         ax.plot(point_counts, y, marker="s", lw=2.2, ms=6, color=colors[model_name], label=labels[model_name])
@@ -50,17 +51,14 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
 
     ax = axes[2]
     x = np.arange(len(sampling_modes))
-    width = 0.36
-    uniform_scores = [
-        metrics["models"]["uniform"]["metrics"]["aggregate"]["accuracy_by_count"][fixed_points_key][mode]
-        for mode in sampling_modes
-    ]
-    geom_scores = [
-        metrics["models"]["geometry_aware"]["metrics"]["aggregate"]["accuracy_by_count"][fixed_points_key][mode]
-        for mode in sampling_modes
-    ]
-    ax.bar(x - width / 2, uniform_scores, width=width, color=colors["uniform"], label=labels["uniform"])
-    ax.bar(x + width / 2, geom_scores, width=width, color=colors["geometry_aware"], label=labels["geometry_aware"])
+    width = 0.78 / max(len(model_order), 1)
+    offsets = np.linspace(-0.5 * (len(model_order) - 1) * width, 0.5 * (len(model_order) - 1) * width, len(model_order))
+    for offset, model_name in zip(offsets, model_order):
+        scores = [
+            metrics["models"][model_name]["metrics"]["aggregate"]["accuracy_by_count"][fixed_points_key][mode]
+            for mode in sampling_modes
+        ]
+        ax.bar(x + offset, scores, width=width, color=colors[model_name], label=labels[model_name])
     ax.set_xticks(x)
     ax.set_xticklabels(sampling_modes, rotation=20)
     ax.set_ylim(0.0, 1.0)

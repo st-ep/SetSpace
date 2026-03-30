@@ -14,10 +14,11 @@ from case_studies.point_cloud_consistency.benchmark import load_model_checkpoint
 from case_studies.point_cloud_consistency.common import load_json
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
 
-MODEL_ORDER = ("uniform", "geometry_aware")
+MODEL_ORDER = ("uniform", "geometry_aware", "moment2")
 MODEL_LABELS = {
     "uniform": "Uniform encoder",
-    "geometry_aware": "Geometry-aware encoder",
+    "geometry_aware": "kNN density encoder",
+    "moment2": "MMQ-2 encoder",
 }
 MODE_OFFSETS = {
     "uniform": 11,
@@ -61,7 +62,7 @@ def _train_points_from_metrics(metrics: dict) -> int | None:
 
 def _load_models(metrics: dict, device: torch.device) -> dict[str, torch.nn.Module]:
     loaded = {}
-    for model_name in MODEL_ORDER:
+    for model_name in [name for name in MODEL_ORDER if name in metrics["models"]]:
         checkpoint_dir = Path(metrics["models"][model_name]["checkpoint_dir"])
         model, _ = load_model_checkpoint(checkpoint_dir, device)
         loaded[model_name] = model
@@ -118,6 +119,7 @@ def _score_example(
     fixed_points: int,
     sampling_modes: list[str],
 ) -> tuple[int, int, float, float]:
+    comparison_model = "moment2" if "moment2" in models else "geometry_aware"
     gain_modes = 0
     correct_gap = 0
     margin_gain = 0.0
@@ -134,10 +136,10 @@ def _score_example(
         values = values.unsqueeze(0).to(device)
 
         _, pred_uniform, p_true_uniform = _predict_summary(models["uniform"], coords, values, label)
-        _, pred_geom, p_true_geom = _predict_summary(models["geometry_aware"], coords, values, label)
-        gain_modes += int(pred_geom == label and pred_uniform != label)
-        correct_gap += int(pred_geom == label) - int(pred_uniform == label)
-        margin_gain += p_true_geom - p_true_uniform
+        _, pred_cmp, p_true_cmp = _predict_summary(models[comparison_model], coords, values, label)
+        gain_modes += int(pred_cmp == label and pred_uniform != label)
+        correct_gap += int(pred_cmp == label) - int(pred_uniform == label)
+        margin_gain += p_true_cmp - p_true_uniform
 
     return gain_modes, correct_gap, margin_gain, _field_variation(dataset, split, local_index)
 
@@ -229,10 +231,11 @@ def plot_qualitative_responses(
         )
 
     object_data = dataset.objects[dataset._global_index(split, example_index)]
+    model_order = [name for name in MODEL_ORDER if name in models]
     sampled_views = {}
     field_values = []
     attribution_values = []
-    model_summaries: dict[str, dict[str, tuple[int, float]]] = {name: {} for name in MODEL_ORDER}
+    model_summaries: dict[str, dict[str, tuple[int, float]]] = {name: {} for name in model_order}
 
     for mode in sampling_modes:
         coords, values, label = dataset.sample_view(
@@ -248,12 +251,12 @@ def plot_qualitative_responses(
             "points": coords.cpu().numpy(),
             "field": values.squeeze(-1).cpu().numpy(),
             "label": int(label),
-            "uniform": {},
-            "geometry_aware": {},
         }
+        for model_name in model_order:
+            view_payload[model_name] = {}
         field_values.append(view_payload["field"])
 
-        for model_name in MODEL_ORDER:
+        for model_name in model_order:
             attribution = _leave_one_out_attribution(models[model_name], coords_b, values_b, label)
             _, pred_class, p_true = _predict_summary(models[model_name], coords_b, values_b, label)
             view_payload[model_name]["attribution"] = attribution
@@ -270,19 +273,16 @@ def plot_qualitative_responses(
     attr_norm = colors.TwoSlopeNorm(vcenter=0.0, vmin=-attr_scale, vmax=attr_scale)
     cmap = "coolwarm"
 
-    fig = plt.figure(figsize=(16.8, 9.2))
-    gs = fig.add_gridspec(3, len(sampling_modes), hspace=0.18, wspace=0.02)
+    n_rows = 1 + len(model_order)
+    fig = plt.figure(figsize=(16.8, 3.0 + 2.05 * n_rows))
+    gs = fig.add_gridspec(n_rows, len(sampling_modes), hspace=0.18, wspace=0.02)
 
-    row_labels = [
-        "Ground-truth field",
-        "Uniform encoder\nleave-one-out attribution",
-        "Geometry-aware encoder\nleave-one-out attribution",
-    ]
-    row_names = [None, "uniform", "geometry_aware"]
+    row_labels = ["Ground-truth field"] + [f"{MODEL_LABELS[name]}\nleave-one-out attribution" for name in model_order]
+    row_names = [None] + model_order
     marker_size = max(10.0, 1100.0 / float(fixed_points))
     annotation_specs: list[tuple[plt.Axes, str]] = []
 
-    for row in range(3):
+    for row in range(n_rows):
         for col, mode in enumerate(sampling_modes):
             ax = fig.add_subplot(gs[row, col], projection="3d")
             view_payload = sampled_views[mode]
@@ -322,9 +322,9 @@ def plot_qualitative_responses(
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 1.5},
         )
 
-    fig.text(0.015, 0.81, row_labels[0], rotation=90, va="center", ha="center", fontsize=12)
-    fig.text(0.015, 0.49, row_labels[1], rotation=90, va="center", ha="center", fontsize=12)
-    fig.text(0.015, 0.17, row_labels[2], rotation=90, va="center", ha="center", fontsize=12)
+    y_positions = np.linspace(0.82, 0.16, n_rows)
+    for row_idx, row_label in enumerate(row_labels):
+        fig.text(0.015, float(y_positions[row_idx]), row_label, rotation=90, va="center", ha="center", fontsize=12)
 
     field_cax = fig.add_axes([0.92, 0.68, 0.015, 0.20])
     field_sm = plt.cm.ScalarMappable(norm=field_norm, cmap=cmap)

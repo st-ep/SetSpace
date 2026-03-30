@@ -156,7 +156,7 @@ class WeightedSetEncoder(nn.Module):
         if element_weights is None:
             weights = torch.ones((batch_size, n_elements), device=coords.device, dtype=coords.dtype)
         else:
-            weights = torch.clamp(element_weights, min=0.0).to(dtype=coords.dtype)
+            weights = element_weights.to(dtype=coords.dtype)
 
         if element_mask is not None:
             mask = element_mask.to(dtype=coords.dtype)

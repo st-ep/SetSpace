@@ -1,4 +1,4 @@
-.PHONY: help point-cloud-consistency point-cloud-consistency-512 point-cloud-mean-regression sphere-reconstruction install clean
+.PHONY: help point-cloud-consistency point-cloud-consistency-512 point-cloud-mean-regression sphere-reconstruction scanobjectnn-consistency install clean
 
 DEVICE ?= cuda:0
 
@@ -11,6 +11,7 @@ help:
 	@echo "  point-cloud-consistency-512  Point-cloud benchmark (train at 512 points)"
 	@echo "  point-cloud-mean-regression  Point-cloud mean-regression benchmark"
 	@echo "  sphere-reconstruction        Sphere signal reconstruction benchmark"
+	@echo "  scanobjectnn-consistency     ScanObjectNN real-world consistency benchmark"
 	@echo "  clean                        Remove results, logs, and __pycache__"
 
 install:
@@ -27,6 +28,9 @@ point-cloud-mean-regression:
 
 sphere-reconstruction:
 	python case_studies/sphere_signal_reconstruction/run_benchmark.py --device $(DEVICE) --output_dir results/sphere_signal_reconstruction_run
+
+scanobjectnn-consistency:
+	python case_studies/scanobjectnn_consistency/run_benchmark.py --device $(DEVICE) --output_dir results/scanobjectnn_consistency_run
 
 clean:
 	rm -rf results/ logs/

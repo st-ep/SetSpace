@@ -20,7 +20,7 @@ from case_studies.point_cloud_consistency.common import (
     set_random_seed,
 )
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
-from case_studies.point_cloud_consistency.models import PointCloudSetClassifier
+from case_studies.point_cloud_consistency.models import build_point_cloud_classifier
 from case_studies.point_cloud_consistency.plot_consistency import plot_metrics
 from case_studies.point_cloud_consistency.plot_overview import plot_benchmark_overview
 from case_studies.point_cloud_consistency.plot_qualitative import plot_qualitative_responses
@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument("--n_resamples", type=int, default=3)
     parser.add_argument("--point_counts", type=int, nargs="+", default=DEFAULT_POINT_COUNTS)
     parser.add_argument("--sampling_modes", nargs="+", default=DEFAULT_EVAL_MODES)
+    parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
     parser.add_argument("--n_tokens", type=int, default=16)
     parser.add_argument("--token_dim", type=int, default=32)
     parser.add_argument("--key_dim", type=int, default=64)
@@ -81,6 +82,7 @@ def main():
     base_model_config = {
         "value_input_dim": 1,
         "num_classes": 2,
+        "backbone": args.backbone,
         "n_tokens": args.n_tokens,
         "token_dim": args.token_dim,
         "key_dim": args.key_dim,
@@ -91,10 +93,27 @@ def main():
         "normalize": args.normalize,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
+        "mmq_anchor_ratio": 0.125,
+        "mmq_max_anchors": 32,
+        "mmq_patch_k": 16,
+        "mmq_tangent_k": 16,
+        "mmq_rank_tol": 1e-6,
+        "pointnext_width": 32,
+        "pointnext_blocks": [1, 1, 1, 1, 1, 1],
+        "pointnext_strides": [1, 2, 2, 2, 2, 1],
+        "pointnext_radius": 0.15,
+        "pointnext_radius_scaling": 1.5,
+        "pointnext_nsample": 32,
+        "pointnext_expansion": 4,
+        "pointnext_sa_layers": 2,
+        "pointnext_sa_use_res": True,
+        "pointnext_normalize_dp": True,
+        "pointnext_head_hidden_dim": args.hidden_dim,
     }
     training_config = {
         "train_points": args.train_points,
         "train_sampling_mode": "uniform",
+        "backbone": args.backbone,
         "steps": args.steps,
         "batch_size": args.batch_size,
         "lr": args.lr,
@@ -106,9 +125,40 @@ def main():
     }
 
     trained_models = {}
-    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn")]:
+    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn"), ("moment2", "moment2")]:
         model_config = {**base_model_config, "weight_mode": weight_mode}
-        model = PointCloudSetClassifier(**{k: v for k, v in model_config.items() if k != "activation_fn"})
+        model = build_point_cloud_classifier(
+            backbone=args.backbone,
+            activation_fn=torch.nn.GELU,
+            value_input_dim=1,
+            num_classes=2,
+            n_tokens=args.n_tokens,
+            token_dim=args.token_dim,
+            key_dim=args.key_dim,
+            hidden_dim=args.hidden_dim,
+            basis_activation=args.basis_activation,
+            value_mode=args.value_mode,
+            normalize=args.normalize,
+            weight_mode=weight_mode,
+            knn_k=args.knn_k,
+            intrinsic_dim=args.intrinsic_dim,
+            mmq_anchor_ratio=base_model_config["mmq_anchor_ratio"],
+            mmq_max_anchors=base_model_config["mmq_max_anchors"],
+            mmq_patch_k=base_model_config["mmq_patch_k"],
+            mmq_tangent_k=base_model_config["mmq_tangent_k"],
+            mmq_rank_tol=base_model_config["mmq_rank_tol"],
+            pointnext_width=base_model_config["pointnext_width"],
+            pointnext_blocks=tuple(base_model_config["pointnext_blocks"]),
+            pointnext_strides=tuple(base_model_config["pointnext_strides"]),
+            pointnext_radius=base_model_config["pointnext_radius"],
+            pointnext_radius_scaling=base_model_config["pointnext_radius_scaling"],
+            pointnext_nsample=base_model_config["pointnext_nsample"],
+            pointnext_expansion=base_model_config["pointnext_expansion"],
+            pointnext_sa_layers=base_model_config["pointnext_sa_layers"],
+            pointnext_sa_use_res=base_model_config["pointnext_sa_use_res"],
+            pointnext_normalize_dp=base_model_config["pointnext_normalize_dp"],
+            pointnext_head_hidden_dim=base_model_config["pointnext_head_hidden_dim"],
+        )
         summary = train_classifier(
             model,
             dataset,

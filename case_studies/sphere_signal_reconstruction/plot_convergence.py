@@ -8,8 +8,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-CLR_GEOM = "#1b9e77"
-CLR_UNIF = "#d95f02"
+COLORS = {"uniform": "#d95f02", "geometry_aware": "#1b9e77", "moment2": "#7570b3"}
+LABELS = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder", "moment2": "MMQ-2 encoder"}
+MARKERS = {"uniform": "s", "geometry_aware": "o", "moment2": "^"}
 
 
 def load_metrics(path: Path) -> dict:
@@ -37,20 +38,26 @@ def plot_metrics(metrics: dict, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     point_counts = np.array([int(v) for v in metrics["point_counts"]], dtype=float)
-    agg_uniform = metrics["models"]["uniform"]["metrics"]["aggregate"]
-    agg_geom = metrics["models"]["geometry_aware"]["metrics"]["aggregate"]
-    uniform_rmse = np.array([agg_uniform["avg_nonuniform_rmse"][str(int(p))] for p in point_counts], dtype=float)
-    geom_rmse = np.array([agg_geom["avg_nonuniform_rmse"][str(int(p))] for p in point_counts], dtype=float)
-    uniform_drift = np.array([agg_uniform["avg_nonuniform_prediction_drift"][str(int(p))] for p in point_counts], dtype=float)
-    geom_drift = np.array([agg_geom["avg_nonuniform_prediction_drift"][str(int(p))] for p in point_counts], dtype=float)
+    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     for ax in axes:
         ax.set_box_aspect(1)
 
     ax = axes[0]
-    slope_unif_rmse = _plot_series(ax, point_counts, uniform_rmse, color=CLR_UNIF, marker="s", label="Uniform encoder")
-    slope_geom_rmse = _plot_series(ax, point_counts, geom_rmse, color=CLR_GEOM, marker="o", label="Geometry-aware encoder")
+    rmse_annotations = []
+    for model_name in model_order:
+        agg = metrics["models"][model_name]["metrics"]["aggregate"]
+        series = np.array([agg["avg_nonuniform_rmse"][str(int(p))] for p in point_counts], dtype=float)
+        slope = _plot_series(
+            ax,
+            point_counts,
+            series,
+            color=COLORS[model_name],
+            marker=MARKERS[model_name],
+            label=LABELS[model_name],
+        )
+        rmse_annotations.append(f"{LABELS[model_name]}: $M^{{{slope:.2f}}}$")
     ax.set_xlabel("$M$ (observed points)")
     ax.set_ylabel("RMSE")
     ax.set_title("(a) Average nonuniform reconstruction error")
@@ -59,15 +66,26 @@ def plot_metrics(metrics: dict, output_dir: Path) -> None:
     ax.text(
         0.04,
         0.08,
-        f"Uniform fit: $M^{{{slope_unif_rmse:.2f}}}$\nGeometry-aware fit: $M^{{{slope_geom_rmse:.2f}}}$",
+        "\n".join(rmse_annotations),
         transform=ax.transAxes,
         fontsize=10,
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 2.0},
     )
 
     ax = axes[1]
-    slope_unif_drift = _plot_series(ax, point_counts, uniform_drift, color=CLR_UNIF, marker="s", label="Uniform encoder")
-    slope_geom_drift = _plot_series(ax, point_counts, geom_drift, color=CLR_GEOM, marker="o", label="Geometry-aware encoder")
+    drift_annotations = []
+    for model_name in model_order:
+        agg = metrics["models"][model_name]["metrics"]["aggregate"]
+        series = np.array([agg["avg_nonuniform_prediction_drift"][str(int(p))] for p in point_counts], dtype=float)
+        slope = _plot_series(
+            ax,
+            point_counts,
+            series,
+            color=COLORS[model_name],
+            marker=MARKERS[model_name],
+            label=LABELS[model_name],
+        )
+        drift_annotations.append(f"{LABELS[model_name]}: $M^{{{slope:.2f}}}$")
     ax.set_xlabel("$M$ (observed points)")
     ax.set_ylabel("Average nonuniform prediction drift")
     ax.set_title("(b) Average nonuniform prediction drift")
@@ -76,7 +94,7 @@ def plot_metrics(metrics: dict, output_dir: Path) -> None:
     ax.text(
         0.04,
         0.08,
-        f"Uniform fit: $M^{{{slope_unif_drift:.2f}}}$\nGeometry-aware fit: $M^{{{slope_geom_drift:.2f}}}$",
+        "\n".join(drift_annotations),
         transform=ax.transAxes,
         fontsize=10,
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 2.0},

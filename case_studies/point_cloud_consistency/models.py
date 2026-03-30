@@ -3,7 +3,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from set_encoders import WeightedSetEncoder, infer_knn_density_weights, infer_uniform_weights
+from case_studies.point_cloud_consistency.pointnext import PointNeXtClassifier
+from set_encoders import WeightedSetEncoder, infer_knn_density_weights, infer_moment2_weights, infer_uniform_weights
 
 
 class PointCloudSetPredictor(nn.Module):
@@ -23,18 +24,28 @@ class PointCloudSetPredictor(nn.Module):
         weight_mode: str = "uniform",
         knn_k: int = 8,
         intrinsic_dim: int = 2,
+        mmq_anchor_ratio: float = 0.125,
+        mmq_max_anchors: int = 32,
+        mmq_patch_k: int = 16,
+        mmq_tangent_k: int = 16,
+        mmq_rank_tol: float = 1e-6,
     ) -> None:
         super().__init__()
 
         self.weight_mode = weight_mode.lower()
         self.knn_k = int(knn_k)
         self.intrinsic_dim = int(intrinsic_dim)
+        self.mmq_anchor_ratio = float(mmq_anchor_ratio)
+        self.mmq_max_anchors = int(mmq_max_anchors)
+        self.mmq_patch_k = int(mmq_patch_k)
+        self.mmq_tangent_k = int(mmq_tangent_k)
+        self.mmq_rank_tol = float(mmq_rank_tol)
         self.n_tokens = int(n_tokens)
         self.token_dim = int(token_dim)
         self.output_dim = int(output_dim)
 
-        if self.weight_mode not in ["uniform", "knn"]:
-            raise ValueError(f"weight_mode must be 'uniform' or 'knn', got {weight_mode}")
+        if self.weight_mode not in ["uniform", "knn", "moment2"]:
+            raise ValueError(f"weight_mode must be 'uniform', 'knn', or 'moment2', got {weight_mode}")
 
         self.encoder = WeightedSetEncoder(
             n_tokens=self.n_tokens,
@@ -66,6 +77,16 @@ class PointCloudSetPredictor(nn.Module):
     ) -> torch.Tensor:
         if self.weight_mode == "uniform":
             return infer_uniform_weights(coords, point_mask)
+        if self.weight_mode == "moment2":
+            return infer_moment2_weights(
+                coords,
+                sensor_mask=point_mask,
+                anchor_ratio=self.mmq_anchor_ratio,
+                max_anchors=self.mmq_max_anchors,
+                patch_k=self.mmq_patch_k,
+                tangent_k=self.mmq_tangent_k,
+                rank_tol=self.mmq_rank_tol,
+            ).to(dtype=coords.dtype)
 
         return infer_knn_density_weights(
             coords,
@@ -122,3 +143,60 @@ class PointCloudMeanRegressor(PointCloudSetPredictor):
         point_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         return super().forward(coords, values, point_mask=point_mask).squeeze(-1)
+
+
+def build_point_cloud_classifier(
+    *,
+    backbone: str = "set_encoder",
+    activation_fn=nn.GELU,
+    pointnext_width: int = 32,
+    pointnext_blocks: tuple[int, ...] = (1, 1, 1, 1, 1, 1),
+    pointnext_strides: tuple[int, ...] = (1, 2, 2, 2, 2, 1),
+    pointnext_radius: float = 0.15,
+    pointnext_radius_scaling: float = 1.5,
+    pointnext_nsample: int = 32,
+    pointnext_expansion: int = 4,
+    pointnext_sa_layers: int = 2,
+    pointnext_sa_use_res: bool = True,
+    pointnext_normalize_dp: bool = True,
+    pointnext_head_hidden_dim: int = 256,
+    mmq_anchor_ratio: float = 0.125,
+    mmq_max_anchors: int = 32,
+    mmq_patch_k: int = 16,
+    mmq_tangent_k: int = 16,
+    mmq_rank_tol: float = 1e-6,
+    **kwargs,
+) -> nn.Module:
+    backbone = backbone.lower()
+    if backbone == "set_encoder":
+        return PointCloudSetClassifier(
+            activation_fn=activation_fn,
+            mmq_anchor_ratio=mmq_anchor_ratio,
+            mmq_max_anchors=mmq_max_anchors,
+            mmq_patch_k=mmq_patch_k,
+            mmq_tangent_k=mmq_tangent_k,
+            mmq_rank_tol=mmq_rank_tol,
+            **kwargs,
+        )
+    if backbone == "pointnext":
+        return PointNeXtClassifier(
+            width=int(pointnext_width),
+            blocks=tuple(int(v) for v in pointnext_blocks),
+            strides=tuple(int(v) for v in pointnext_strides),
+            radius=float(pointnext_radius),
+            radius_scaling=float(pointnext_radius_scaling),
+            nsample=int(pointnext_nsample),
+            expansion=int(pointnext_expansion),
+            sa_layers=int(pointnext_sa_layers),
+            sa_use_res=bool(pointnext_sa_use_res),
+            normalize_dp=bool(pointnext_normalize_dp),
+            head_hidden_dim=int(pointnext_head_hidden_dim),
+            num_classes=kwargs["num_classes"],
+            value_input_dim=kwargs.get("value_input_dim", 1),
+            weight_mode=kwargs.get("weight_mode", "uniform"),
+            density_k=kwargs.get("knn_k", 8),
+            intrinsic_dim=kwargs.get("intrinsic_dim", 2),
+            mmq_tangent_k=int(mmq_tangent_k),
+            mmq_rank_tol=float(mmq_rank_tol),
+        )
+    raise ValueError(f"Unsupported classifier backbone: {backbone}")

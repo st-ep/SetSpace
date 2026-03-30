@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 from case_studies.point_cloud_consistency.benchmark import save_training_artifacts, train_classifier
 from case_studies.point_cloud_consistency.common import DEFAULT_EVAL_MODES, set_random_seed
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
-from case_studies.point_cloud_consistency.models import PointCloudSetClassifier
+from case_studies.point_cloud_consistency.models import build_point_cloud_classifier
 
 
 def parse_args():
@@ -26,7 +26,8 @@ def parse_args():
     parser.add_argument("--label_reference_points", type=int, default=4096)
     parser.add_argument("--train_points", type=int, default=128)
     parser.add_argument("--train_sampling_mode", default="uniform")
-    parser.add_argument("--weight_mode", choices=["uniform", "knn"], default="uniform")
+    parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
+    parser.add_argument("--weight_mode", choices=["uniform", "knn", "moment2"], default="uniform")
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -63,6 +64,7 @@ def main():
     model_config = {
         "value_input_dim": 1,
         "num_classes": 2,
+        "backbone": args.backbone,
         "n_tokens": args.n_tokens,
         "token_dim": args.token_dim,
         "key_dim": args.key_dim,
@@ -74,8 +76,55 @@ def main():
         "weight_mode": args.weight_mode,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
+        "mmq_anchor_ratio": 0.125,
+        "mmq_max_anchors": 32,
+        "mmq_patch_k": 16,
+        "mmq_tangent_k": 16,
+        "mmq_rank_tol": 1e-6,
+        "pointnext_width": 32,
+        "pointnext_blocks": [1, 1, 1, 1, 1, 1],
+        "pointnext_strides": [1, 2, 2, 2, 2, 1],
+        "pointnext_radius": 0.15,
+        "pointnext_radius_scaling": 1.5,
+        "pointnext_nsample": 32,
+        "pointnext_expansion": 4,
+        "pointnext_sa_layers": 2,
+        "pointnext_sa_use_res": True,
+        "pointnext_normalize_dp": True,
+        "pointnext_head_hidden_dim": args.hidden_dim,
     }
-    model = PointCloudSetClassifier(**{k: v for k, v in model_config.items() if k != "activation_fn"})
+    model = build_point_cloud_classifier(
+        backbone=args.backbone,
+        activation_fn=torch.nn.GELU,
+        value_input_dim=1,
+        num_classes=2,
+        n_tokens=args.n_tokens,
+        token_dim=args.token_dim,
+        key_dim=args.key_dim,
+        hidden_dim=args.hidden_dim,
+        basis_activation=args.basis_activation,
+        value_mode=args.value_mode,
+        normalize=args.normalize,
+        weight_mode=args.weight_mode,
+        knn_k=args.knn_k,
+        intrinsic_dim=args.intrinsic_dim,
+        mmq_anchor_ratio=model_config["mmq_anchor_ratio"],
+        mmq_max_anchors=model_config["mmq_max_anchors"],
+        mmq_patch_k=model_config["mmq_patch_k"],
+        mmq_tangent_k=model_config["mmq_tangent_k"],
+        mmq_rank_tol=model_config["mmq_rank_tol"],
+        pointnext_width=model_config["pointnext_width"],
+        pointnext_blocks=tuple(model_config["pointnext_blocks"]),
+        pointnext_strides=tuple(model_config["pointnext_strides"]),
+        pointnext_radius=model_config["pointnext_radius"],
+        pointnext_radius_scaling=model_config["pointnext_radius_scaling"],
+        pointnext_nsample=model_config["pointnext_nsample"],
+        pointnext_expansion=model_config["pointnext_expansion"],
+        pointnext_sa_layers=model_config["pointnext_sa_layers"],
+        pointnext_sa_use_res=model_config["pointnext_sa_use_res"],
+        pointnext_normalize_dp=model_config["pointnext_normalize_dp"],
+        pointnext_head_hidden_dim=model_config["pointnext_head_hidden_dim"],
+    )
 
     training_summary = train_classifier(
         model,
@@ -102,11 +151,12 @@ def main():
         dataset=dataset,
         model_config=model_config,
         training_config={
-            "train_points": args.train_points,
-            "train_sampling_mode": args.train_sampling_mode,
-            "steps": args.steps,
-            "batch_size": args.batch_size,
-            "lr": args.lr,
+        "train_points": args.train_points,
+        "train_sampling_mode": args.train_sampling_mode,
+        "backbone": args.backbone,
+        "steps": args.steps,
+        "batch_size": args.batch_size,
+        "lr": args.lr,
             "weight_decay": args.weight_decay,
             "grad_clip": args.grad_clip,
             "eval_every": args.eval_every,

@@ -62,6 +62,7 @@ def _score_candidate(
     fixed_points: int,
     nonuniform_modes: list[str],
 ) -> float:
+    comparison_model = "moment2" if "moment2" in models else "geometry_aware"
     label = dataset._record("test", local_index).label
     score = 0.0
     for mode in nonuniform_modes:
@@ -76,11 +77,11 @@ def _score_candidate(
         )
         preds = _predict(models, coords, values, dataset)
         uniform_correct = int(preds["uniform"]["pred"] == label)
-        geom_correct = int(preds["geometry_aware"]["pred"] == label)
-        true_conf_gap = (
-            preds["geometry_aware"]["confidence"] if geom_correct else 0.0
-        ) - (preds["uniform"]["confidence"] if uniform_correct else 0.0)
-        score += 2.0 * (geom_correct - uniform_correct) + true_conf_gap
+        cmp_correct = int(preds[comparison_model]["pred"] == label)
+        true_conf_gap = (preds[comparison_model]["confidence"] if cmp_correct else 0.0) - (
+            preds["uniform"]["confidence"] if uniform_correct else 0.0
+        )
+        score += 2.0 * (cmp_correct - uniform_correct) + true_conf_gap
     return score
 
 
@@ -154,9 +155,10 @@ def plot_qualitative(
     device = _resolve_device(None if device is None else str(device))
     if dataset is None:
         dataset = ScanObjectNNConsistencyDataset(**metrics["dataset"])
+    model_order = [name for name in ["uniform", "geometry_aware", "moment2"] if name in metrics["models"]]
     if models is None:
         models = {}
-        for model_name in ["uniform", "geometry_aware"]:
+        for model_name in model_order:
             model, _ = load_model_checkpoint(Path(metrics["models"][model_name]["checkpoint_dir"]), device)
             models[model_name] = model
 
@@ -206,20 +208,22 @@ def plot_qualitative(
         text_ax = fig.add_subplot(gs[1, col])
         text_ax.axis("off")
         text_ax.text(0.0, 0.92, f"True label: {true_name}", fontsize=11, fontweight="bold")
-        text_ax.text(
-            0.0,
-            0.56,
-            f"Uniform: {predictions['uniform']['label_name']} ({predictions['uniform']['confidence']:.2f})",
-            fontsize=10.5,
-            color="#d95f02",
-        )
-        text_ax.text(
-            0.0,
-            0.24,
-            f"Geometry-aware: {predictions['geometry_aware']['label_name']} ({predictions['geometry_aware']['confidence']:.2f})",
-            fontsize=10.5,
-            color="#1b9e77",
-        )
+        line_y = 0.66
+        style = {
+            "uniform": ("Uniform", "#d95f02"),
+            "geometry_aware": ("kNN density", "#1b9e77"),
+            "moment2": ("MMQ-2", "#7570b3"),
+        }
+        for model_name in model_order:
+            label_name, color = style[model_name]
+            text_ax.text(
+                0.0,
+                line_y,
+                f"{label_name}: {predictions[model_name]['label_name']} ({predictions[model_name]['confidence']:.2f})",
+                fontsize=10.5,
+                color=color,
+            )
+            line_y -= 0.22
         if mode == "background_heavy":
             text_ax.text(
                 0.0,

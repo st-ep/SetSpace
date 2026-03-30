@@ -95,6 +95,11 @@ def main():
         "use_deeponet_bias": not args.no_deeponet_bias,
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
+        "mmq_anchor_ratio": 0.125,
+        "mmq_max_anchors": 32,
+        "mmq_patch_k": 16,
+        "mmq_tangent_k": 16,
+        "mmq_rank_tol": 1e-6,
     }
     training_config = {
         "train_points": args.train_points,
@@ -111,7 +116,7 @@ def main():
     }
 
     trained_models = {}
-    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn")]:
+    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn"), ("moment2", "moment2")]:
         model_config = {**base_model_config, "weight_mode": weight_mode}
         model = SphereSignalReconstructor(**{k: v for k, v in model_config.items() if k != "activation_fn"})
         summary = train_reconstructor(
