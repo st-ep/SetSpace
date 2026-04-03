@@ -7,6 +7,7 @@ from case_studies.point_cloud_consistency.dataset import SAMPLING_MODES, Synthet
 from case_studies.point_cloud_consistency.models import (
     PointCloudMeanRegressor,
     build_point_cloud_classifier,
+    build_point_cloud_regressor,
 )
 from case_studies.shared import get_activation, load_json, save_json, set_random_seed
 
@@ -30,9 +31,9 @@ def build_model_from_config(model_config: dict) -> torch.nn.Module:
     }
     task = model_config.get("task", "classification").lower()
     if task == "regression":
-        if backbone != "set_encoder":
-            raise ValueError(f"Regression currently supports only the set_encoder backbone, got {backbone}.")
-        return PointCloudMeanRegressor(
+        return build_point_cloud_regressor(
+            output_dim=model_config.get("output_dim", 1),
+            backbone=backbone,
             **shared_kwargs,
             n_tokens=model_config.get("n_tokens", 16),
             token_dim=model_config.get("token_dim", 32),
@@ -41,6 +42,17 @@ def build_model_from_config(model_config: dict) -> torch.nn.Module:
             basis_activation=model_config.get("basis_activation", "softplus"),
             value_mode=model_config.get("value_mode", "mlp_xu"),
             normalize=model_config.get("normalize", "total"),
+            pointnext_width=model_config.get("pointnext_width", 32),
+            pointnext_blocks=tuple(model_config.get("pointnext_blocks", [1, 1, 1, 1, 1, 1])),
+            pointnext_strides=tuple(model_config.get("pointnext_strides", [1, 2, 2, 2, 2, 1])),
+            pointnext_radius=model_config.get("pointnext_radius", 0.15),
+            pointnext_radius_scaling=model_config.get("pointnext_radius_scaling", 1.5),
+            pointnext_nsample=model_config.get("pointnext_nsample", 32),
+            pointnext_expansion=model_config.get("pointnext_expansion", 4),
+            pointnext_sa_layers=model_config.get("pointnext_sa_layers", 2),
+            pointnext_sa_use_res=model_config.get("pointnext_sa_use_res", True),
+            pointnext_normalize_dp=model_config.get("pointnext_normalize_dp", True),
+            pointnext_head_hidden_dim=model_config.get("pointnext_head_hidden_dim", 256),
         )
     classifier_kwargs = {
         **shared_kwargs,

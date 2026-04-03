@@ -28,6 +28,7 @@ class WeightedSetEncoder(nn.Module):
         *,
         n_tokens: int,
         coord_dim: int,
+        value_coord_dim: int | None = None,
         value_input_dim: int,
         output_dim: int,
         key_dim: int,
@@ -48,6 +49,8 @@ class WeightedSetEncoder(nn.Module):
         self.key_dim = int(key_dim)
         self.value_dim = int(value_dim)
         self.output_dim = int(output_dim)
+        self.coord_dim = int(coord_dim)
+        self.value_coord_dim = int(coord_dim if value_coord_dim is None else value_coord_dim)
         self.eps = float(eps)
         self.normalize = normalize.lower()
         self.learn_temperature = bool(learn_temperature)
@@ -91,7 +94,7 @@ class WeightedSetEncoder(nn.Module):
             self._value_includes_x = False
         else:
             self.value_net = nn.Sequential(
-                nn.Linear(coord_dim + value_input_dim, hidden_dim),
+                nn.Linear(self.value_coord_dim + value_input_dim, hidden_dim),
                 activation_fn(),
                 nn.Linear(hidden_dim, hidden_dim),
                 activation_fn(),
@@ -122,6 +125,7 @@ class WeightedSetEncoder(nn.Module):
         values: torch.Tensor,
         element_mask: torch.Tensor | None = None,
         element_weights: torch.Tensor | None = None,
+        value_coords: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if coords.dim() != 3 or values.dim() != 3:
             raise ValueError(f"coords and values must be 3D, got {coords.shape=} and {values.shape=}")
@@ -136,7 +140,17 @@ class WeightedSetEncoder(nn.Module):
 
         keys = self.key_net(coords)
         if self._value_includes_x:
-            encoded_values = self.value_net(torch.cat([coords, values], dim=-1))
+            if value_coords is None:
+                value_coords = coords
+            if value_coords.dim() != 3 or value_coords.shape[:2] != values.shape[:2]:
+                raise ValueError(
+                    f"value_coords must be 3D and share (B, N) with values, got {value_coords.shape=} and {values.shape=}"
+                )
+            if value_coords.shape[-1] != self.value_coord_dim:
+                raise ValueError(
+                    f"value_coords last dimension must be {self.value_coord_dim}, got {value_coords.shape[-1]}"
+                )
+            encoded_values = self.value_net(torch.cat([value_coords, values], dim=-1))
         else:
             encoded_values = self.value_net(values)
 

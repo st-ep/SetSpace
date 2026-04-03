@@ -42,6 +42,11 @@ def evaluate_surface_signal(obj: SurfaceSignalObject, points: torch.Tensor) -> t
     return (poly + bumps).unsqueeze(-1)
 
 
+def _oracle_weights_from_scores(scores: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    weights = scores.clamp_min(eps).reciprocal()
+    return weights / weights.sum().clamp_min(eps)
+
+
 class SyntheticSurfaceSignalDataset:
     """
     Same-object benchmark for sampled-set consistency on a sphere surface.
@@ -171,13 +176,26 @@ class SyntheticSurfaceSignalDataset:
         n_points: int,
         sampling_mode: str,
         view_seed: int,
-    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, int] | tuple[torch.Tensor, torch.Tensor, int, torch.Tensor]:
         global_index = self._global_index(split, int(local_index))
         obj = self.objects[global_index]
         generator = torch.Generator().manual_seed(int(view_seed))
-        points = sample_surface_points(int(n_points), sampling_mode, generator)
+        oracle_weights = None
+        if return_oracle_weights:
+            points, oracle_scores = sample_surface_points(
+                int(n_points),
+                sampling_mode,
+                generator,
+                return_scores=True,
+            )
+            oracle_weights = _oracle_weights_from_scores(oracle_scores).to(dtype=torch.float32)
+        else:
+            points = sample_surface_points(int(n_points), sampling_mode, generator)
         values = evaluate_surface_signal(obj, points).to(dtype=torch.float32)
-        return points.to(dtype=torch.float32), values, int(obj.label)
+        if oracle_weights is None:
+            return points.to(dtype=torch.float32), values, int(obj.label)
+        return points.to(dtype=torch.float32), values, int(obj.label), oracle_weights
 
     def get_labels(
         self,
@@ -217,28 +235,41 @@ class SyntheticSurfaceSignalDataset:
         sampling_mode: str,
         view_seeds: torch.Tensor,
         device: torch.device | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         points_list = []
         values_list = []
+        oracle_weight_list = []
         for local_index, view_seed in zip(local_indices.tolist(), view_seeds.tolist()):
-            points, values, _ = self.sample_view(
+            sample = self.sample_view(
                 split,
                 local_index,
                 n_points=n_points,
                 sampling_mode=sampling_mode,
                 view_seed=int(view_seed),
+                return_oracle_weights=return_oracle_weights,
             )
+            if return_oracle_weights:
+                points, values, _, oracle_weights = sample
+                oracle_weight_list.append(oracle_weights)
+            else:
+                points, values, _ = sample
             points_list.append(points)
             values_list.append(values)
 
         points_batch = torch.stack(points_list)
         values_batch = torch.stack(values_list)
         labels_batch = self.get_labels(split, local_indices)
+        oracle_weights_batch = torch.stack(oracle_weight_list) if return_oracle_weights else None
         if device is not None:
             points_batch = points_batch.to(device)
             values_batch = values_batch.to(device)
             labels_batch = labels_batch.to(device)
-        return points_batch, values_batch, labels_batch
+            if oracle_weights_batch is not None:
+                oracle_weights_batch = oracle_weights_batch.to(device)
+        if oracle_weights_batch is None:
+            return points_batch, values_batch, labels_batch
+        return points_batch, values_batch, labels_batch, oracle_weights_batch
 
     def sample_batch(
         self,
@@ -248,7 +279,8 @@ class SyntheticSurfaceSignalDataset:
         n_points: int,
         sampling_mode: str,
         device: torch.device | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         generator = self._batch_generators[split]
         local_indices = torch.randint(0, self.split_size(split), (int(batch_size),), generator=generator)
         view_seeds = torch.randint(0, 2**31 - 1, (int(batch_size),), generator=generator)
@@ -259,6 +291,7 @@ class SyntheticSurfaceSignalDataset:
             sampling_mode=sampling_mode,
             view_seeds=view_seeds,
             device=device,
+            return_oracle_weights=return_oracle_weights,
         )
 
     def sample_batch_with_indices(
@@ -269,18 +302,26 @@ class SyntheticSurfaceSignalDataset:
         n_points: int,
         sampling_mode: str,
         device: torch.device | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         generator = self._batch_generators[split]
         local_indices = torch.randint(0, self.split_size(split), (int(batch_size),), generator=generator)
         view_seeds = torch.randint(0, 2**31 - 1, (int(batch_size),), generator=generator)
-        points_batch, values_batch, labels_batch = self.collate_views(
+        collated = self.collate_views(
             split,
             local_indices,
             n_points=n_points,
             sampling_mode=sampling_mode,
             view_seeds=view_seeds,
             device=device,
+            return_oracle_weights=return_oracle_weights,
         )
+        if return_oracle_weights:
+            points_batch, values_batch, labels_batch, oracle_weights_batch = collated
+        else:
+            points_batch, values_batch, labels_batch = collated
         if device is not None:
             local_indices = local_indices.to(device)
-        return points_batch, values_batch, labels_batch, local_indices
+        if not return_oracle_weights:
+            return points_batch, values_batch, labels_batch, local_indices
+        return points_batch, values_batch, labels_batch, local_indices, oracle_weights_batch

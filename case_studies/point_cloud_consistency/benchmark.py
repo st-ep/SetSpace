@@ -23,7 +23,11 @@ def _make_view_seeds(split, local_indices, *, n_points, sampling_mode, replica_i
 
 
 def _is_regressor(model: torch.nn.Module) -> bool:
-    return isinstance(model, PointCloudMeanRegressor)
+    return isinstance(model, PointCloudMeanRegressor) or str(getattr(model, "task", "")).lower() == "regression"
+
+
+def _uses_oracle_density(model: torch.nn.Module) -> bool:
+    return str(getattr(model, "weight_mode", "")).lower() == "oracle_density"
 
 
 def train_classifier(
@@ -44,12 +48,23 @@ def train_classifier(
     val_objects: int,
     seed: int,
 ) -> dict:
+    use_oracle_weights = _uses_oracle_density(model)
+
     def train_step(m, _step):
-        coords, values, labels = dataset.sample_batch(
-            "train", batch_size=batch_size, n_points=train_points,
-            sampling_mode=train_sampling_mode, device=device,
+        batch = dataset.sample_batch(
+            "train",
+            batch_size=batch_size,
+            n_points=train_points,
+            sampling_mode=train_sampling_mode,
+            device=device,
+            return_oracle_weights=use_oracle_weights,
         )
-        logits = m(coords, values)
+        if use_oracle_weights:
+            coords, values, labels, oracle_weights = batch
+            logits = m(coords, values, point_weights=oracle_weights)
+        else:
+            coords, values, labels = batch
+            logits = m(coords, values)
         loss = F.cross_entropy(logits, labels)
         with torch.no_grad():
             acc = (logits.argmax(dim=-1) == labels).float().mean().item()
@@ -74,7 +89,7 @@ def train_classifier(
 
 
 def train_regressor(
-    model: PointCloudMeanRegressor,
+    model: torch.nn.Module,
     dataset: SyntheticSurfaceSignalDataset,
     *,
     run_name: str | None = None,
@@ -91,13 +106,24 @@ def train_regressor(
     val_objects: int,
     seed: int,
 ) -> dict:
+    use_oracle_weights = _uses_oracle_density(model)
+
     def train_step(m, _step):
-        coords, values, _, local_indices = dataset.sample_batch_with_indices(
-            "train", batch_size=batch_size, n_points=train_points,
-            sampling_mode=train_sampling_mode, device=device,
+        batch = dataset.sample_batch_with_indices(
+            "train",
+            batch_size=batch_size,
+            n_points=train_points,
+            sampling_mode=train_sampling_mode,
+            device=device,
+            return_oracle_weights=use_oracle_weights,
         )
+        if use_oracle_weights:
+            coords, values, _, local_indices, oracle_weights = batch
+            preds = m(coords, values, point_weights=oracle_weights)
+        else:
+            coords, values, _, local_indices = batch
+            preds = m(coords, values)
         targets = dataset.get_integral_targets("train", local_indices.detach().cpu(), device=device)
-        preds = m(coords, values)
         loss = F.mse_loss(preds, targets)
         with torch.no_grad():
             mae = (preds - targets).abs().mean().item()
@@ -135,6 +161,7 @@ def _evaluate_consistency(
     """Shared evaluation core for both classifier and regressor."""
     model.eval()
     is_regression = _is_regressor(model)
+    use_oracle_weights = _uses_oracle_density(model)
     n_objects = dataset.split_size(split)
     if max_objects is not None:
         n_objects = min(n_objects, int(max_objects))
@@ -148,16 +175,29 @@ def _evaluate_consistency(
         for start in range(0, n_objects, batch_size):
             idx = local_indices[start : start + batch_size]
             ref_seeds = _make_view_seeds(split, idx, n_points=reference_points, sampling_mode="uniform", replica_idx=0)
-            coords, values, _ = dataset.collate_views(
-                split, idx, n_points=reference_points, sampling_mode="uniform",
-                view_seeds=ref_seeds, device=device,
+            ref_batch = dataset.collate_views(
+                split,
+                idx,
+                n_points=reference_points,
+                sampling_mode="uniform",
+                view_seeds=ref_seeds,
+                device=device,
+                return_oracle_weights=use_oracle_weights,
             )
-            if is_regression:
-                ref_outputs_list.append(model(coords, values).cpu())
+            if use_oracle_weights:
+                coords, values, _, oracle_weights = ref_batch
             else:
-                logits = model(coords, values)
+                coords, values, _ = ref_batch
+            if is_regression:
+                ref_outputs_list.append(model(coords, values, point_weights=oracle_weights).cpu() if use_oracle_weights else model(coords, values).cpu())
+            else:
+                logits = model(coords, values, point_weights=oracle_weights) if use_oracle_weights else model(coords, values)
                 ref_outputs_list.append(logits.cpu())
-                ref_embeddings_list.append(model.embed(coords, values).cpu())
+                ref_embeddings_list.append(
+                    model.embed(coords, values, point_weights=oracle_weights).cpu()
+                    if use_oracle_weights
+                    else model.embed(coords, values).cpu()
+                )
 
     ref_outputs = torch.cat(ref_outputs_list, dim=0)
     ref_embeddings = torch.cat(ref_embeddings_list, dim=0) if ref_embeddings_list else None
@@ -180,14 +220,27 @@ def _evaluate_consistency(
                             split, idx, n_points=n_points, sampling_mode=mode,
                             replica_idx=replica_idx + 1,
                         )
-                        coords, values, labels = dataset.collate_views(
-                            split, idx, n_points=n_points, sampling_mode=mode,
-                            view_seeds=view_seeds, device=device,
+                        batch = dataset.collate_views(
+                            split,
+                            idx,
+                            n_points=n_points,
+                            sampling_mode=mode,
+                            view_seeds=view_seeds,
+                            device=device,
+                            return_oracle_weights=use_oracle_weights,
                         )
+                        if use_oracle_weights:
+                            coords, values, labels, oracle_weights = batch
+                        else:
+                            coords, values, labels = batch
                         ref_out = ref_outputs[start : start + len(idx)]
 
                         if is_regression:
-                            preds = model(coords, values).cpu()
+                            preds = (
+                                model(coords, values, point_weights=oracle_weights).cpu()
+                                if use_oracle_weights
+                                else model(coords, values).cpu()
+                            )
                             tgt = targets[start : start + len(idx)]
                             error = preds - tgt
                             totals["squared_error"] = totals.get("squared_error", 0.0) + float(error.square().sum().item())
@@ -195,8 +248,12 @@ def _evaluate_consistency(
                             totals["signed_error"] = totals.get("signed_error", 0.0) + float(error.sum().item())
                             totals["prediction_drift"] = totals.get("prediction_drift", 0.0) + float((preds - ref_out).abs().sum().item())
                         else:
-                            logits = model(coords, values).cpu()
-                            embeddings = model.embed(coords, values).cpu()
+                            if use_oracle_weights:
+                                logits = model(coords, values, point_weights=oracle_weights).cpu()
+                                embeddings = model.embed(coords, values, point_weights=oracle_weights).cpu()
+                            else:
+                                logits = model(coords, values).cpu()
+                                embeddings = model.embed(coords, values).cpu()
                             preds = logits.argmax(dim=-1)
                             ref_emb = ref_embeddings[start : start + len(idx)]
                             ref_preds = ref_out.argmax(dim=-1)

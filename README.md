@@ -19,6 +19,20 @@ set-space/
 ├── case_studies/
 │   ├── shared.py
 │   ├── sphere_utils.py
+│   ├── airfrans_field_prediction/
+│   │   ├── prepare_dataset.py
+│   │   ├── dataset.py
+│   │   ├── models.py
+│   │   ├── benchmark.py
+│   │   └── run_benchmark.py
+│   ├── ahmedml_surface_forces/
+│   │   ├── prepare_dataset.py
+│   │   ├── dataset.py
+│   │   ├── models.py
+│   │   ├── benchmark.py
+│   │   ├── train.py
+│   │   ├── evaluate.py
+│   │   └── run_benchmark.py
 │   ├── point_cloud_consistency/
 │   │   ├── dataset.py
 │   │   ├── models.py
@@ -37,12 +51,6 @@ set-space/
 │   │   ├── plot_convergence.py
 │   │   ├── plot_qualitative.py
 │   │   └── run_benchmark.py
-│   └── scanobjectnn_consistency/
-│       ├── dataset.py
-│       ├── benchmark.py
-│       ├── train.py
-│       ├── evaluate.py
-│       └── run_benchmark.py
 ├── ABSTRACT.md
 └── results/
 ```
@@ -65,11 +73,31 @@ set-space/
   - analytic sphere-field reconstruction benchmark with dense canonical queries
 - `case_studies/sphere_signal_reconstruction/run_benchmark.py`
   - trains both reconstruction models, evaluates density shift and deterministic refinement, and saves figures
+- `case_studies/ahmedml_surface_forces/prepare_dataset.py`
+  - converts raw AhmedML surface files into compact `.npz` samples for sparse surface-force learning
+- `case_studies/ahmedml_surface_forces/run_benchmark.py`
+  - trains matched uniform and geometry-aware set regressors on sparse surface samples and evaluates resampling robustness
+- `case_studies/airfrans_field_prediction/prepare_dataset.py`
+  - downloads and preprocesses the official AirfRANS splits into compact airfoil-boundary force-regression `.npz` samples
+- `case_studies/airfrans_field_prediction/run_benchmark.py`
+  - trains matched uniform and geometry-aware set regressors for sparse AirfRANS `Cd/Cl` prediction
 
 ## Install
 
 ```bash
 pip install -e .
+```
+
+For the AhmedML preprocessing script, install the optional dependency:
+
+```bash
+pip install -e .[ahmedml]
+```
+
+For AirfRANS preprocessing, install the optional dependency:
+
+```bash
+pip install -e .[airfrans]
 ```
 
 ## Run The Synthetic Point-Cloud Consistency Benchmark
@@ -79,7 +107,7 @@ Constructs continuous scalar fields on a sphere, resamples the same underlying o
 - a matched uniform set encoder
 - a geometry-aware encoder with kNN density weights
 
-Run the full benchmark:
+Run the full benchmark. This defaults to `25000` training steps:
 
 ```bash
 python case_studies/point_cloud_consistency/run_benchmark.py \
@@ -187,6 +215,105 @@ python case_studies/sphere_signal_reconstruction/evaluate.py \
   --output_path results/sphere_signal_reconstruction_metrics.json
 ```
 
+## Run The AhmedML Sparse-Surface Force Benchmark
+
+This benchmark targets a more directly practical surface-functional task:
+predicting aerodynamic force coefficients from irregular sparse samples of CFD
+surface fields. The raw AhmedML release provides per-geometry `boundary_*.vtp`
+surface files and force/moment CSVs; the repo converts them into compact
+surface-sample `.npz` files first.
+
+Prepare the processed dataset:
+
+```bash
+python case_studies/ahmedml_surface_forces/prepare_dataset.py \
+  --raw_root data/ahmedml_raw \
+  --output_dir data/ahmedml_processed \
+  --target_names Cd Cl
+```
+
+Run the full benchmark:
+
+```bash
+python case_studies/ahmedml_surface_forces/run_benchmark.py \
+  --device cuda:0 \
+  --processed_root data/ahmedml_processed \
+  --output_dir results/ahmedml_surface_forces_run
+```
+
+Train a single model:
+
+```bash
+python case_studies/ahmedml_surface_forces/train.py \
+  --device cuda:0 \
+  --processed_root data/ahmedml_processed \
+  --weight_mode knn \
+  --output_dir checkpoints/ahmedml_surface_forces/geometry_aware
+```
+
+Or use `make`:
+
+```bash
+make ahmedml-prepare AHMEDML_RAW_ROOT=data/ahmedml_raw AHMEDML_ROOT=data/ahmedml_processed
+make ahmedml-surface-forces AHMEDML_ROOT=data/ahmedml_processed
+make ahmedml-surface-forces-pointnext AHMEDML_ROOT=data/ahmedml_processed
+```
+
+Both Ahmed `make` targets default to `25000` training steps. To override:
+
+```bash
+make ahmedml-surface-forces-pointnext AHMEDML_ROOT=data/ahmedml_processed AHMEDML_STEPS=5000
+```
+
+## Run The AirfRANS Force-Regression Benchmark
+
+This AirfRANS benchmark reuses the official `full/scarce/reynolds/aoa` splits
+but converts each simulation into a sparse airfoil-boundary regression task.
+The preprocessing step uses the raw simulation geometry and AirfRANS reference
+API to compute aerodynamic force coefficients, then stores:
+
+- sparse boundary coordinates on the airfoil
+- local boundary features: pressure, wall shear, and normals
+- global regression targets `(Cd, Cl)`
+
+Prepare the processed dataset:
+
+```bash
+python case_studies/airfrans_field_prediction/prepare_dataset.py \
+  --raw_root data/airfrans_raw \
+  --output_dir data/airfrans_processed \
+  --task full
+```
+
+Run the full benchmark. This defaults to `25000` training steps:
+
+```bash
+python case_studies/airfrans_field_prediction/run_benchmark.py \
+  --device cuda:0 \
+  --processed_root data/airfrans_processed \
+  --task full \
+  --output_dir results/airfrans_field_prediction_run
+```
+
+Run the PointNeXt baseline on the same processed split:
+
+```bash
+python case_studies/airfrans_field_prediction/run_benchmark.py \
+  --device cuda:0 \
+  --processed_root data/airfrans_processed \
+  --task full \
+  --backbone pointnext \
+  --output_dir results/airfrans_field_prediction_pointnext_run
+```
+
+Or use `make`:
+
+```bash
+make airfrans-prepare AIRFRANS_RAW_ROOT=data/airfrans_raw AIRFRANS_ROOT=data/airfrans_processed
+make airfrans-force-regression AIRFRANS_ROOT=data/airfrans_processed
+make airfrans-force-regression-pointnext AIRFRANS_ROOT=data/airfrans_processed
+```
+
 ## Project Direction
 
 The repo is shaped around a foundational thesis:
@@ -199,4 +326,3 @@ That framing is captured in `ABSTRACT.md`. The repo contains:
 
 - a synthetic same-object point-cloud consistency benchmark for controlled resampling shift
 - a dense sphere-field reconstruction benchmark for discretization shift and refinement
-- a real-world ScanObjectNN point-cloud classification benchmark

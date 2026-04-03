@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument("--n_bumps", type=int, default=4)
     parser.add_argument("--query_points", type=int, default=1024)
     parser.add_argument("--train_points", type=int, default=128)
-    parser.add_argument("--steps", type=int, default=10000)
+    parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
@@ -110,9 +110,32 @@ def main():
         "seed": args.seed,
     }
 
+    model_specs = [
+        {
+            "name": "uniform",
+            "weight_mode": "uniform",
+            "value_mode": args.value_mode,
+        },
+        {
+            "name": "geometry_aware",
+            "weight_mode": "knn",
+            "value_mode": args.value_mode,
+        },
+        {
+            "name": "oracle_density",
+            "weight_mode": "oracle_density",
+            "value_mode": args.value_mode,
+        },
+    ]
+
     trained_models = {}
-    for model_name, weight_mode in [("uniform", "uniform"), ("geometry_aware", "knn")]:
-        model_config = {**base_model_config, "weight_mode": weight_mode}
+    for spec in model_specs:
+        model_name = spec["name"]
+        model_config = {
+            **base_model_config,
+            "weight_mode": spec["weight_mode"],
+            "value_mode": spec["value_mode"],
+        }
         model = SphereSignalReconstructor(**{k: v for k, v in model_config.items() if k != "activation_fn"})
         summary = train_reconstructor(
             model,

@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument("--n_bumps", type=int, default=4)
     parser.add_argument("--label_reference_points", type=int, default=4096)
     parser.add_argument("--train_points", type=int, default=128)
-    parser.add_argument("--steps", type=int, default=10000)
+    parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
@@ -119,10 +119,42 @@ def main():
         "seed": args.seed,
     }
 
-    model_specs = [("uniform", "uniform")] if args.backbone == "pointnext" else [("uniform", "uniform"), ("geometry_aware", "knn")]
+    model_specs = (
+        [
+            {
+                "name": "uniform",
+                "weight_mode": "uniform",
+                "value_mode": args.value_mode,
+            }
+        ]
+        if args.backbone == "pointnext"
+        else [
+            {
+                "name": "uniform",
+                "weight_mode": "uniform",
+                "value_mode": args.value_mode,
+            },
+            {
+                "name": "geometry_aware",
+                "weight_mode": "knn",
+                "value_mode": args.value_mode,
+            },
+            {
+                "name": "oracle_density",
+                "weight_mode": "oracle_density",
+                "value_mode": args.value_mode,
+            },
+        ]
+    )
     trained_models = {}
-    for model_name, weight_mode in model_specs:
-        model_config = {**base_model_config, "weight_mode": weight_mode}
+    for spec in model_specs:
+        model_name = spec["name"]
+        weight_mode = spec["weight_mode"]
+        model_config = {
+            **base_model_config,
+            "weight_mode": weight_mode,
+            "value_mode": spec["value_mode"],
+        }
         model = build_point_cloud_classifier(
             backbone=args.backbone,
             activation_fn=torch.nn.GELU,
@@ -133,7 +165,7 @@ def main():
             key_dim=args.key_dim,
             hidden_dim=args.hidden_dim,
             basis_activation=args.basis_activation,
-            value_mode=args.value_mode,
+            value_mode=spec["value_mode"],
             normalize=args.normalize,
             weight_mode=weight_mode,
             knn_k=args.knn_k,

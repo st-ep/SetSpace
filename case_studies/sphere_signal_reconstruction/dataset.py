@@ -81,6 +81,11 @@ class SphereSignalObject:
     bump_concentrations: torch.Tensor
 
 
+def _oracle_weights_from_scores(scores: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    weights = scores.clamp_min(eps).reciprocal()
+    return weights / weights.sum().clamp_min(eps)
+
+
 class SphereSignalDataset:
     """
     Sphere signal reconstruction benchmark.
@@ -241,15 +246,33 @@ class SphereSignalDataset:
         view_seed: int,
         deterministic_uniform: bool = False,
         standardized: bool = True,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if deterministic_uniform:
             points = self.refinement_coords[: int(n_points)].clone()
+            oracle_weights = (
+                torch.full((int(n_points),), 1.0 / float(n_points), dtype=torch.float32)
+                if return_oracle_weights
+                else None
+            )
         else:
             generator = torch.Generator().manual_seed(int(view_seed))
-            points = sample_surface_points(int(n_points), sampling_mode, generator)
+            if return_oracle_weights:
+                points, oracle_scores = sample_surface_points(
+                    int(n_points),
+                    sampling_mode,
+                    generator,
+                    return_scores=True,
+                )
+                oracle_weights = _oracle_weights_from_scores(oracle_scores).to(dtype=torch.float32)
+            else:
+                points = sample_surface_points(int(n_points), sampling_mode, generator)
+                oracle_weights = None
         values_raw = self.evaluate_split_object_raw(split, local_index, points).to(dtype=torch.float32)
         values = self.standardize_values(values_raw) if standardized else values_raw
-        return points.to(dtype=torch.float32), values.unsqueeze(-1)
+        if oracle_weights is None:
+            return points.to(dtype=torch.float32), values.unsqueeze(-1)
+        return points.to(dtype=torch.float32), values.unsqueeze(-1), oracle_weights
 
     def collate_observations(
         self,
@@ -262,11 +285,13 @@ class SphereSignalDataset:
         deterministic_uniform: bool = False,
         standardized: bool = True,
         device: torch.device | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         points_list = []
         values_list = []
+        oracle_weight_list = []
         for local_index, view_seed in zip(local_indices.tolist(), view_seeds.tolist()):
-            points, values = self.sample_observation_view(
+            sample = self.sample_observation_view(
                 split,
                 int(local_index),
                 n_points=n_points,
@@ -274,16 +299,27 @@ class SphereSignalDataset:
                 view_seed=int(view_seed),
                 deterministic_uniform=deterministic_uniform,
                 standardized=standardized,
+                return_oracle_weights=return_oracle_weights,
             )
+            if return_oracle_weights:
+                points, values, oracle_weights = sample
+                oracle_weight_list.append(oracle_weights)
+            else:
+                points, values = sample
             points_list.append(points)
             values_list.append(values)
 
         points_batch = torch.stack(points_list, dim=0)
         values_batch = torch.stack(values_list, dim=0)
+        oracle_weights_batch = torch.stack(oracle_weight_list, dim=0) if return_oracle_weights else None
         if device is not None:
             points_batch = points_batch.to(device)
             values_batch = values_batch.to(device)
-        return points_batch, values_batch
+            if oracle_weights_batch is not None:
+                oracle_weights_batch = oracle_weights_batch.to(device)
+        if oracle_weights_batch is None:
+            return points_batch, values_batch
+        return points_batch, values_batch, oracle_weights_batch
 
     def sample_batch(
         self,
@@ -293,11 +329,12 @@ class SphereSignalDataset:
         n_points: int,
         sampling_mode: str,
         device: torch.device | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        return_oracle_weights: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         generator = self._batch_generators[split]
         local_indices = torch.randint(0, self.split_size(split), (int(batch_size),), generator=generator)
         view_seeds = torch.randint(0, 2**31 - 1, (int(batch_size),), generator=generator)
-        obs_coords, obs_values = self.collate_observations(
+        collated = self.collate_observations(
             split,
             local_indices,
             n_points=n_points,
@@ -305,9 +342,16 @@ class SphereSignalDataset:
             view_seeds=view_seeds,
             standardized=True,
             device=device,
+            return_oracle_weights=return_oracle_weights,
         )
+        if return_oracle_weights:
+            obs_coords, obs_values, oracle_weights = collated
+        else:
+            obs_coords, obs_values = collated
         query_coords = self.get_query_coords_batch(int(batch_size), device=device)
         query_targets = self.get_query_targets(split, local_indices, standardized=True, device=device).unsqueeze(-1)
         if device is not None:
             local_indices = local_indices.to(device)
-        return obs_coords, obs_values, query_coords, query_targets, local_indices
+        if not return_oracle_weights:
+            return obs_coords, obs_values, query_coords, query_targets, local_indices
+        return obs_coords, obs_values, oracle_weights, query_coords, query_targets, local_indices

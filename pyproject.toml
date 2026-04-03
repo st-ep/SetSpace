@@ -13,5 +13,13 @@ dependencies = [
     "tqdm>=4.65",
 ]
 
+[project.optional-dependencies]
+ahmedml = [
+    "pyvista>=0.43",
+]
+airfrans = [
+    "airfrans",
+]
+
 [tool.setuptools.packages.find]
 include = ["set_encoders*", "case_studies*"]

@@ -23,6 +23,7 @@ class SetEncoderOperator(nn.Module):
         output_size_src: int,
         input_size_tgt: int,
         output_size_tgt: int,
+        value_coord_dim: int | None = None,
         p: int = 32,
         phi_hidden_size: int = 256,
         rho_hidden_size: int = 256,
@@ -54,6 +55,7 @@ class SetEncoderOperator(nn.Module):
         self.output_size_src = output_size_src
         self.input_size_tgt = input_size_tgt
         self.output_size_tgt = output_size_tgt
+        self.value_coord_dim = value_coord_dim
         self.use_positional_encoding = use_positional_encoding and pos_encoding_type != "skip"
         self.pos_encoding_dim = pos_encoding_dim if self.use_positional_encoding else 0
         self.pos_encoding_type = pos_encoding_type
@@ -94,6 +96,7 @@ class SetEncoderOperator(nn.Module):
         self._set_encoder = WeightedSetEncoder(
             n_tokens=self.p,
             coord_dim=encoded_coord_dim,
+            value_coord_dim=(encoded_coord_dim if value_coord_dim is None else int(value_coord_dim)),
             value_input_dim=self.output_size_src,
             output_dim=self.output_size_tgt,
             key_dim=key_dim,
@@ -147,6 +150,7 @@ class SetEncoderOperator(nn.Module):
         us: torch.Tensor,
         sensor_mask: torch.Tensor | None = None,
         sensor_weights: torch.Tensor | None = None,
+        value_xs: torch.Tensor | None = None,
     ) -> torch.Tensor:
         encoded_coords = self._sinusoidal_encoding(xs) if self.use_positional_encoding else xs
         if sensor_weights is not None:
@@ -161,6 +165,7 @@ class SetEncoderOperator(nn.Module):
             us,
             element_mask=sensor_mask,
             element_weights=inferred_weights,
+            value_coords=value_xs,
         )
 
     def forward_trunk(self, ys: torch.Tensor) -> torch.Tensor:
@@ -175,8 +180,15 @@ class SetEncoderOperator(nn.Module):
         ys: torch.Tensor,
         sensor_mask: torch.Tensor | None = None,
         sensor_weights: torch.Tensor | None = None,
+        value_xs: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        branch_tokens = self.forward_branch(xs, us, sensor_mask=sensor_mask, sensor_weights=sensor_weights)
+        branch_tokens = self.forward_branch(
+            xs,
+            us,
+            sensor_mask=sensor_mask,
+            sensor_weights=sensor_weights,
+            value_xs=value_xs,
+        )
         trunk_tokens = self.forward_trunk(ys)
         out = torch.einsum("bpz,bdpz->bdz", branch_tokens, trunk_tokens)
         if self.bias is not None:

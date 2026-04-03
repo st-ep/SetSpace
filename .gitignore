@@ -6,8 +6,12 @@ __pycache__/
 .ipynb_checkpoints/
 results/
 logs/
+data/
 *.h5
+*.npz
+*.egg-info/
 h5_files/
+data/ScanObjectNN/h5_files
 data/ScanObjectNN/h5_files/
 __MACOSX/
 paper/

@@ -24,6 +24,10 @@ def _make_view_seeds(split, local_indices, *, n_points, sampling_mode, replica_i
     )
 
 
+def _uses_oracle_density(model: torch.nn.Module) -> bool:
+    return str(getattr(model, "weight_mode", "")).lower() == "oracle_density"
+
+
 def train_reconstructor(
     model: SphereSignalReconstructor,
     dataset: SphereSignalDataset,
@@ -43,12 +47,23 @@ def train_reconstructor(
     reference_points: int,
     seed: int,
 ) -> dict:
+    use_oracle_weights = _uses_oracle_density(model)
+
     def train_step(m, _step):
-        obs_coords, obs_values, query_coords, query_targets, _ = dataset.sample_batch(
-            "train", batch_size=batch_size, n_points=train_points,
-            sampling_mode=train_sampling_mode, device=device,
+        batch = dataset.sample_batch(
+            "train",
+            batch_size=batch_size,
+            n_points=train_points,
+            sampling_mode=train_sampling_mode,
+            device=device,
+            return_oracle_weights=use_oracle_weights,
         )
-        preds = m(obs_coords, obs_values, query_coords).unsqueeze(-1)
+        if use_oracle_weights:
+            obs_coords, obs_values, oracle_weights, query_coords, query_targets, _ = batch
+            preds = m(obs_coords, obs_values, query_coords, sensor_weights=oracle_weights).unsqueeze(-1)
+        else:
+            obs_coords, obs_values, query_coords, query_targets, _ = batch
+            preds = m(obs_coords, obs_values, query_coords).unsqueeze(-1)
         loss = F.mse_loss(preds, query_targets)
         with torch.no_grad():
             rel = calculate_l2_relative_error(preds.squeeze(-1), query_targets.squeeze(-1)).item()
@@ -124,6 +139,7 @@ def evaluate_reconstructor(
     max_objects: int | None = None,
 ) -> dict:
     model.eval()
+    use_oracle_weights = _uses_oracle_density(model)
     n_objects = dataset.split_size(split)
     if max_objects is not None:
         n_objects = min(n_objects, int(max_objects))
@@ -138,7 +154,7 @@ def evaluate_reconstructor(
         for start in range(0, n_objects, batch_size):
             idx = local_indices[start : start + batch_size]
             ref_seeds = _make_view_seeds(split, idx, n_points=reference_points, sampling_mode="uniform", replica_idx=0)
-            obs_coords, obs_values = dataset.collate_observations(
+            batch = dataset.collate_observations(
                 split,
                 idx,
                 n_points=reference_points,
@@ -147,8 +163,14 @@ def evaluate_reconstructor(
                 deterministic_uniform=True,
                 standardized=True,
                 device=device,
+                return_oracle_weights=use_oracle_weights,
             )
-            preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
+            if use_oracle_weights:
+                obs_coords, obs_values, oracle_weights = batch
+                preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)], sensor_weights=oracle_weights)
+            else:
+                obs_coords, obs_values = batch
+                preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
             reference_predictions.append(dataset.destandardize_values(preds_std).cpu())
 
     ref_preds_all = torch.cat(reference_predictions, dim=0)
@@ -169,7 +191,7 @@ def evaluate_reconstructor(
                             sampling_mode=mode,
                             replica_idx=replica_idx + 1,
                         )
-                        obs_coords, obs_values = dataset.collate_observations(
+                        batch = dataset.collate_observations(
                             split,
                             idx,
                             n_points=n_points,
@@ -178,8 +200,19 @@ def evaluate_reconstructor(
                             deterministic_uniform=False,
                             standardized=True,
                             device=device,
+                            return_oracle_weights=use_oracle_weights,
                         )
-                        preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
+                        if use_oracle_weights:
+                            obs_coords, obs_values, oracle_weights = batch
+                            preds_std = model(
+                                obs_coords,
+                                obs_values,
+                                query_coords_batch[: len(idx)],
+                                sensor_weights=oracle_weights,
+                            )
+                        else:
+                            obs_coords, obs_values = batch
+                            preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
                         rmse, rel_l2, drift, spectral = _evaluate_batch_metrics(
                             dataset,
                             preds_std.cpu(),
@@ -215,6 +248,7 @@ def evaluate_deterministic_convergence(
     max_objects: int | None = None,
 ) -> dict:
     model.eval()
+    use_oracle_weights = _uses_oracle_density(model)
     n_objects = dataset.split_size(split)
     if max_objects is not None:
         n_objects = min(n_objects, int(max_objects))
@@ -229,7 +263,7 @@ def evaluate_deterministic_convergence(
         for start in range(0, n_objects, batch_size):
             idx = local_indices[start : start + batch_size]
             ref_seeds = _make_view_seeds(split, idx, n_points=reference_points, sampling_mode="uniform", replica_idx=0)
-            obs_coords, obs_values = dataset.collate_observations(
+            batch = dataset.collate_observations(
                 split,
                 idx,
                 n_points=reference_points,
@@ -238,8 +272,14 @@ def evaluate_deterministic_convergence(
                 deterministic_uniform=True,
                 standardized=True,
                 device=device,
+                return_oracle_weights=use_oracle_weights,
             )
-            preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
+            if use_oracle_weights:
+                obs_coords, obs_values, oracle_weights = batch
+                preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)], sensor_weights=oracle_weights)
+            else:
+                obs_coords, obs_values = batch
+                preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
             ref_predictions.append(dataset.destandardize_values(preds_std).cpu())
 
     ref_preds_all = torch.cat(ref_predictions, dim=0)
@@ -251,7 +291,7 @@ def evaluate_deterministic_convergence(
             for start in range(0, n_objects, batch_size):
                 idx = local_indices[start : start + batch_size]
                 seeds = _make_view_seeds(split, idx, n_points=n_points, sampling_mode="uniform", replica_idx=1)
-                obs_coords, obs_values = dataset.collate_observations(
+                batch = dataset.collate_observations(
                     split,
                     idx,
                     n_points=n_points,
@@ -260,8 +300,14 @@ def evaluate_deterministic_convergence(
                     deterministic_uniform=True,
                     standardized=True,
                     device=device,
+                    return_oracle_weights=use_oracle_weights,
                 )
-                preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
+                if use_oracle_weights:
+                    obs_coords, obs_values, oracle_weights = batch
+                    preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)], sensor_weights=oracle_weights)
+                else:
+                    obs_coords, obs_values = batch
+                    preds_std = model(obs_coords, obs_values, query_coords_batch[: len(idx)])
                 rmse, rel_l2, drift, spectral = _evaluate_batch_metrics(
                     dataset,
                     preds_std.cpu(),

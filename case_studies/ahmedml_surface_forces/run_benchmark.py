@@ -8,48 +8,46 @@ import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-from case_studies.point_cloud_consistency.benchmark import (
+from case_studies.ahmedml_surface_forces.benchmark import (
     evaluate_regressor,
     save_training_artifacts,
     train_regressor,
 )
-from case_studies.point_cloud_consistency.common import (
+from case_studies.ahmedml_surface_forces.common import (
     DEFAULT_EVAL_MODES,
     DEFAULT_POINT_COUNTS,
     save_json,
     set_random_seed,
 )
-from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
-from case_studies.point_cloud_consistency.models import build_point_cloud_regressor
-from case_studies.point_cloud_consistency.plot_overview import plot_benchmark_overview
-from case_studies.point_cloud_consistency.plot_regression import plot_metrics
-from case_studies.point_cloud_consistency.plot_regression_convergence import plot_metrics as plot_convergence_metrics
-from case_studies.point_cloud_consistency.plot_regression_qualitative import plot_prediction_figure
+from case_studies.ahmedml_surface_forces.dataset import AhmedMLSurfaceForceDataset
+from case_studies.ahmedml_surface_forces.models import build_force_regressor
+from case_studies.ahmedml_surface_forces.plot_convergence import plot_metrics
+from case_studies.ahmedml_surface_forces.plot_qualitative import plot_prediction_figure
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run the full point-cloud mean-regression benchmark.")
-    parser.add_argument("--output_dir", default=str(REPO_ROOT / "results" / "point_cloud_mean_regression_run"))
+    parser = argparse.ArgumentParser(description="Run the AhmedML sparse-surface force benchmark.")
+    parser.add_argument("--processed_root", required=True)
+    parser.add_argument("--output_dir", default=str(REPO_ROOT / "results" / "ahmedml_surface_forces_run"))
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--n_train", type=int, default=2048)
-    parser.add_argument("--n_val", type=int, default=256)
-    parser.add_argument("--n_test", type=int, default=512)
-    parser.add_argument("--n_bumps", type=int, default=4)
-    parser.add_argument("--label_reference_points", type=int, default=4096)
-    parser.add_argument("--train_points", type=int, default=128)
-    parser.add_argument("--steps", type=int, default=2000)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--n_train", type=int, default=None)
+    parser.add_argument("--n_val", type=int, default=None)
+    parser.add_argument("--n_test", type=int, default=None)
+    parser.add_argument("--train_points", type=int, default=256)
+    parser.add_argument("--steps", type=int, default=25000)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=250)
-    parser.add_argument("--val_objects", type=int, default=128)
-    parser.add_argument("--test_objects", type=int, default=256)
+    parser.add_argument("--val_objects", type=int, default=64)
+    parser.add_argument("--test_objects", type=int, default=128)
     parser.add_argument("--reference_points", type=int, default=2048)
     parser.add_argument("--n_resamples", type=int, default=3)
     parser.add_argument("--point_counts", type=int, nargs="+", default=DEFAULT_POINT_COUNTS)
     parser.add_argument("--sampling_modes", nargs="+", default=DEFAULT_EVAL_MODES)
+    parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
     parser.add_argument("--n_tokens", type=int, default=16)
     parser.add_argument("--token_dim", type=int, default=32)
     parser.add_argument("--key_dim", type=int, default=64)
@@ -59,7 +57,6 @@ def parse_args():
     parser.add_argument("--normalize", default="total")
     parser.add_argument("--knn_k", type=int, default=8)
     parser.add_argument("--intrinsic_dim", type=int, default=2)
-    parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
     parser.add_argument("--pointnext_width", type=int, default=32)
     parser.add_argument("--pointnext_blocks", type=int, nargs="+", default=[1, 1, 1, 1, 1, 1])
     parser.add_argument("--pointnext_strides", type=int, nargs="+", default=[1, 2, 2, 2, 2, 1])
@@ -82,20 +79,17 @@ def main():
     checkpoints_dir = output_dir / "checkpoints"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset = SyntheticSurfaceSignalDataset(
+    dataset = AhmedMLSurfaceForceDataset(
+        processed_root=args.processed_root,
+        seed=args.seed,
         n_train=args.n_train,
         n_val=args.n_val,
         n_test=args.n_test,
-        seed=args.seed,
-        n_bumps=args.n_bumps,
-        label_reference_points=args.label_reference_points,
     )
-
     base_model_config = {
-        "task": "regression",
+        "value_input_dim": dataset.value_input_dim,
+        "output_dim": dataset.target_dim,
         "backbone": args.backbone,
-        "output_dim": 1,
-        "value_input_dim": 1,
         "n_tokens": args.n_tokens,
         "token_dim": args.token_dim,
         "key_dim": args.key_dim,
@@ -119,10 +113,9 @@ def main():
         "pointnext_head_hidden_dim": args.pointnext_head_hidden_dim,
     }
     training_config = {
-        "task": "regression",
-        "backbone": args.backbone,
         "train_points": args.train_points,
         "train_sampling_mode": "uniform",
+        "backbone": args.backbone,
         "steps": args.steps,
         "batch_size": args.batch_size,
         "lr": args.lr,
@@ -132,40 +125,47 @@ def main():
         "val_objects": args.val_objects,
         "seed": args.seed,
     }
-
     model_specs = (
-        [{"name": "pointnext", "weight_mode": "uniform", "value_mode": args.value_mode}]
+        [{"name": "pointnext", "weight_mode": "uniform"}]
         if args.backbone == "pointnext"
         else [
-            {
-                "name": "uniform",
-                "weight_mode": "uniform",
-                "value_mode": args.value_mode,
-            },
-            {
-                "name": "geometry_aware",
-                "weight_mode": "knn",
-                "value_mode": args.value_mode,
-            },
-            {
-                "name": "oracle_density",
-                "weight_mode": "oracle_density",
-                "value_mode": args.value_mode,
-            },
+            {"name": "uniform", "weight_mode": "uniform"},
+            {"name": "geometry_aware", "weight_mode": "knn"},
         ]
     )
-
     trained_models = {}
     for spec in model_specs:
         model_name = spec["name"]
         model_config = {
             **base_model_config,
             "weight_mode": spec["weight_mode"],
-            "value_mode": spec["value_mode"],
         }
-        model = build_point_cloud_regressor(
+        model = build_force_regressor(
+            value_input_dim=dataset.value_input_dim,
+            output_dim=dataset.target_dim,
             activation_fn=torch.nn.GELU,
-            **{k: v for k, v in model_config.items() if k not in {"activation_fn", "task"}},
+            backbone=args.backbone,
+            n_tokens=args.n_tokens,
+            token_dim=args.token_dim,
+            key_dim=args.key_dim,
+            hidden_dim=args.hidden_dim,
+            basis_activation=args.basis_activation,
+            value_mode=args.value_mode,
+            normalize=args.normalize,
+            weight_mode=spec["weight_mode"],
+            knn_k=args.knn_k,
+            intrinsic_dim=args.intrinsic_dim,
+            pointnext_width=args.pointnext_width,
+            pointnext_blocks=tuple(args.pointnext_blocks),
+            pointnext_strides=tuple(args.pointnext_strides),
+            pointnext_radius=args.pointnext_radius,
+            pointnext_radius_scaling=args.pointnext_radius_scaling,
+            pointnext_nsample=args.pointnext_nsample,
+            pointnext_expansion=args.pointnext_expansion,
+            pointnext_sa_layers=args.pointnext_sa_layers,
+            pointnext_sa_use_res=args.pointnext_sa_use_res,
+            pointnext_normalize_dp=args.pointnext_normalize_dp,
+            pointnext_head_hidden_dim=args.pointnext_head_hidden_dim,
         )
         summary = train_regressor(
             model,
@@ -196,9 +196,9 @@ def main():
         trained_models[model_name] = model
 
     payload = {
-        "task": "mean_regression",
         "dataset": dataset.get_config(),
         "training": training_config,
+        "normalization": dataset.get_normalization_stats(),
         "reference_points": args.reference_points,
         "n_resamples": args.n_resamples,
         "point_counts": args.point_counts,
@@ -222,14 +222,12 @@ def main():
             "checkpoint_dir": str(checkpoints_dir / model_name),
             "metrics": metrics,
         }
-
     metrics_path = output_dir / "metrics.json"
     save_json(metrics_path, payload)
-    plot_metrics(payload, output_dir, fixed_points=min(args.point_counts))
-    plot_convergence_metrics(payload, output_dir)
-    plot_prediction_figure(payload, output_dir, device=device)
-    plot_benchmark_overview(payload, output_dir)
-    print(f"Saved regression benchmark outputs to {output_dir}")
+    if args.backbone == "set_encoder":
+        plot_metrics(payload, output_dir)
+        plot_prediction_figure(payload, output_dir, dataset=dataset, device=device)
+    print(f"Saved benchmark outputs to {output_dir}")
     print(f"Metrics JSON: {metrics_path}")
 
 

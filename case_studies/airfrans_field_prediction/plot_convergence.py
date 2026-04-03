@@ -26,7 +26,7 @@ def _load_optional_pointnext_metrics(output_dir: Path, explicit_path: Path | Non
     candidates: list[Path] = []
     if explicit_path is not None:
         candidates.append(explicit_path)
-    candidates.append(output_dir.parent / "point_cloud_mean_regression_pointnext_run" / "metrics.json")
+    candidates.append(output_dir.parent / "airfrans_field_prediction_pointnext_run" / "metrics.json")
     for path in candidates:
         if not path.exists():
             continue
@@ -45,7 +45,11 @@ def _fit_curve(x: np.ndarray, slope: float, intercept: float) -> np.ndarray:
     return np.exp(intercept) * np.power(x, slope)
 
 
-def _plot_series_with_fit(
+def _rate_label(slope: float) -> str:
+    return rf"$O(M^{{{slope:.2f}}})$"
+
+
+def _plot_series(
     ax,
     x: np.ndarray,
     y: np.ndarray,
@@ -53,14 +57,26 @@ def _plot_series_with_fit(
     color: str,
     marker: str,
     label: str,
-) -> float:
+) -> tuple[float, float]:
     slope, intercept = _power_law_fit(x, y)
+    fit = _fit_curve(x, slope, intercept)
     ax.loglog(x, y, marker + "-", color=color, lw=2.2, ms=6, label=label)
-    ax.loglog(x, _fit_curve(x, slope, intercept), ":", color=color, lw=1.2, alpha=0.8)
-    return slope
+    ax.loglog(x, fit, ":", color=color, lw=1.3, alpha=0.75)
+    return slope, intercept
 
 
-def plot_metrics(metrics: dict, output_dir: Path, *, pointnext_metrics: dict | None = None) -> None:
+def _annotate_rate(ax, x: np.ndarray, slope: float, intercept: float, *, color: str, y_scale: float, x_index: int) -> None:
+    anchor_x = float(x[x_index])
+    anchor_y = float(_fit_curve(np.asarray([anchor_x]), slope, intercept)[0]) * y_scale
+    ax.text(anchor_x, anchor_y, _rate_label(slope), color=color, fontsize=11)
+
+
+def plot_metrics(
+    metrics: dict,
+    output_dir: Path,
+    *,
+    pointnext_metrics: dict | None = None,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     pointnext_metrics = pointnext_metrics or _load_optional_pointnext_metrics(output_dir)
@@ -71,16 +87,16 @@ def plot_metrics(metrics: dict, output_dir: Path, *, pointnext_metrics: dict | N
         if np.array_equal(point_counts, pointnext_counts):
             model_sources.append(("pointnext", pointnext_metrics))
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 6.2))
     for ax in axes:
         ax.set_box_aspect(1)
+        ax.grid(True, alpha=0.28, which="both")
 
     ax = axes[0]
-    rmse_annotations = []
     for model_name, payload in model_sources:
         agg = payload["models"][model_name]["metrics"]["aggregate"]
-        series = np.array([agg["avg_nonuniform_rmse"][str(int(p))] for p in point_counts], dtype=float)
-        slope = _plot_series_with_fit(
+        series = np.array([agg["worst_case_rmse"][str(int(p))] for p in point_counts], dtype=float)
+        slope, intercept = _plot_series(
             ax,
             point_counts,
             series,
@@ -88,32 +104,30 @@ def plot_metrics(metrics: dict, output_dir: Path, *, pointnext_metrics: dict | N
             marker=MARKERS[model_name],
             label=LABELS[model_name],
         )
-        rmse_annotations.append(f"{LABELS[model_name]}: $M^{{{slope:.2f}}}$")
-    ax.set_xlabel("$M$ (number of sampled points)")
-    ax.set_ylabel("Average nonuniform RMSE")
-    ax.set_title("(a) Mean-regression error under refinement")
-    ax.grid(True, alpha=0.3, which="both")
+        _annotate_rate(
+            ax,
+            point_counts,
+            slope,
+            intercept,
+            color=COLORS[model_name],
+            y_scale=1.14 if model_name == "uniform" else 0.82,
+            x_index=-2 if len(point_counts) > 2 else -1,
+        )
+    ax.set_xlabel(r"$M$ (number of sampled airfoil points)")
+    ax.set_ylabel("Worst-case RMSE")
+    ax.set_title(r"(a) AirfRANS worst-case force error")
     ax.set_xlim(point_counts[0] * 0.9, point_counts[-1] * 1.1)
     ax.set_xticks(point_counts)
     ax.set_xticklabels([str(int(p)) for p in point_counts], fontsize=9)
     ax.xaxis.set_minor_formatter(NullFormatter())
     if model_sources:
         ax.legend(frameon=False, loc="upper right")
-    ax.text(
-        0.04,
-        0.08,
-        "\n".join(rmse_annotations),
-        transform=ax.transAxes,
-        fontsize=10,
-        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 2.0},
-    )
 
     ax = axes[1]
-    drift_annotations = []
     for model_name, payload in model_sources:
         agg = payload["models"][model_name]["metrics"]["aggregate"]
         series = np.array([agg["avg_nonuniform_prediction_drift"][str(int(p))] for p in point_counts], dtype=float)
-        slope = _plot_series_with_fit(
+        slope, intercept = _plot_series(
             ax,
             point_counts,
             series,
@@ -121,34 +135,33 @@ def plot_metrics(metrics: dict, output_dir: Path, *, pointnext_metrics: dict | N
             marker=MARKERS[model_name],
             label=LABELS[model_name],
         )
-        drift_annotations.append(f"{LABELS[model_name]}: $M^{{{slope:.2f}}}$")
-    ax.set_xlabel("$M$ (number of sampled points)")
+        _annotate_rate(
+            ax,
+            point_counts,
+            slope,
+            intercept,
+            color=COLORS[model_name],
+            y_scale=1.16 if model_name == "uniform" else 0.72,
+            x_index=-3 if len(point_counts) > 3 else -1,
+        )
+    ax.set_xlabel(r"$M$ (number of sampled airfoil points)")
     ax.set_ylabel("Average nonuniform prediction drift")
-    ax.set_title("(b) Same-object prediction drift under refinement")
-    ax.grid(True, alpha=0.3, which="both")
+    ax.set_title(r"(b) AirfRANS same-object prediction drift")
     ax.set_xlim(point_counts[0] * 0.9, point_counts[-1] * 1.1)
     ax.set_xticks(point_counts)
     ax.set_xticklabels([str(int(p)) for p in point_counts], fontsize=9)
     ax.xaxis.set_minor_formatter(NullFormatter())
     if model_sources:
-        ax.legend(frameon=False, loc="upper right")
-    ax.text(
-        0.04,
-        0.08,
-        "\n".join(drift_annotations),
-        transform=ax.transAxes,
-        fontsize=10,
-        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 2.0},
-    )
+        ax.legend(frameon=False, loc="lower left")
 
-    fig.tight_layout(w_pad=2.0)
-    fig.savefig(output_dir / "point_cloud_mean_regression_convergence.png", dpi=300, bbox_inches="tight")
-    fig.savefig(output_dir / "point_cloud_mean_regression_convergence.pdf", bbox_inches="tight")
+    fig.tight_layout(w_pad=2.2)
+    fig.savefig(output_dir / "airfrans_force_regression_convergence.png", dpi=300, bbox_inches="tight")
+    fig.savefig(output_dir / "airfrans_force_regression_convergence.pdf", bbox_inches="tight")
     plt.close()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot log-log convergence for the point-cloud mean-regression benchmark.")
+    parser = argparse.ArgumentParser(description="Plot AirfRANS force-regression convergence curves from benchmark metrics.")
     parser.add_argument("--metrics_path", required=True)
     parser.add_argument("--output_dir", default="results")
     parser.add_argument("--pointnext_metrics_path", default=None)
