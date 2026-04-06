@@ -411,6 +411,33 @@ point analogous to the $\boldsymbol{w}$ in Equation~\eqref{eq:setkey_pool}, we
 treat it as a reference architecture rather than as a geometry-weighted variant
 of Set-Key.
 
+\paragraph{Sampling strategies.}
+Across all benchmarks, a sampling strategy is a named resampling distribution
+obtained by reweighting the benchmark's base observation measure while holding
+the underlying continuum object and target fixed.  The base measure is uniform
+surface measure on~$\mathbb{S}^2$ for the synthetic benchmark, mesh-cell area
+on AhmedML, and boundary arclength on AirfRANS.  We organize these strategies
+into four cross-benchmark families.  First, \emph{uniform} leaves the base
+measure unchanged.  Second, \emph{region-biased} strategies upweight a named
+part of the object: on~$\mathbb{S}^2$ this appears as \emph{polar} and
+\emph{equatorial} bias, on AhmedML as \emph{front}, \emph{rear}, and
+\emph{roof}, and on AirfRANS as \emph{leading edge}, \emph{trailing edge},
+\emph{upper surface}, and \emph{lower surface}.  Third, \emph{clustered}
+strategies concentrate samples around one or two random local centers; this is
+the mechanism used by the shared \emph{clustered} mode on all benchmarks.
+Fourth, \emph{partial-view} strategies suppress part of the support while
+leaving the underlying object fixed: on~$\mathbb{S}^2$ this is realized by the
+\emph{hemisphere} mode induced by a random viewing direction, while on AhmedML
+and AirfRANS it is realized by the shared \emph{occluded} mode, which
+downweights a random local neighborhood.  We therefore reuse names only when
+the underlying mechanism matches across benchmarks, most directly for
+\emph{uniform}, \emph{clustered}, and \emph{occluded}; benchmark-specific
+names are reserved for domain-specific region-biased views.  Later subsections
+refer to both families and concrete strategy names while keeping the
+evaluation protocol fixed: for each strategy we evaluate multiple point counts
+and independent replicas, and compare each prediction against a dense uniform
+reference view of the same object.
+
 \paragraph{Quantitative summaries.}
 Tables~\ref{tab:main-results}, \ref{tab:sampling-breakdown},
 \ref{tab:resolution-refinement}, \ref{tab:airfrans-sampling-breakdown}, and
@@ -468,11 +495,11 @@ objects, each observed through 128 uniformly sampled points, using AdamW
 norm~1.
 
 \paragraph{Evaluation protocol.}
-At test time we resample each object under five density
-distributions---\emph{uniform}, \emph{polar} (concentrated near the poles),
-\emph{equatorial} (concentrated near the equator), \emph{clustered}
-(concentrated around two random centers), and \emph{hemisphere} (visible from
-a random viewpoint)---at each of five point counts
+At test time we resample each object under the five sphere sampling strategies
+defined above: one uniform strategy, two region-biased strategies
+(\emph{polar} and \emph{equatorial}), one clustered strategy
+(\emph{clustered}), and one partial-view strategy (\emph{hemisphere}), at each
+of five point counts
 $N\in\{32,64,128,256,512\}$, with three independent resampling replicas per
 setting.  For every object we also obtain a \emph{reference prediction} from a
 dense 2\,048-point uniform sample.  This reference is not ground truth; it is
@@ -548,11 +575,13 @@ global surface functionals from sparse irregular surface observations.
 \paragraph{Setup and resampling protocol.}
 The benchmark uses all 500 processed AhmedML runs, split into 350 training, 75
 validation, and 75 test bodies.  Each model is trained on 256 uniformly
-sampled surface cells per object and evaluated under six sampling modes:
-\emph{uniform}, \emph{front}, \emph{rear}, \emph{roof}, \emph{clustered}, and
-\emph{occluded}.  The nonuniform modes are obtained by reweighting the base
-surface-area distribution, so the sampling pattern changes while the
-underlying CFD solution remains fixed.  We evaluate at point counts
+sampled surface cells per object and evaluated under the six AhmedML sampling
+strategies defined above: one uniform strategy, three region-biased strategies
+(\emph{front}, \emph{rear}, and \emph{roof}), one clustered strategy
+(\emph{clustered}), and one partial-view strategy (\emph{occluded}).  The
+nonuniform strategies are obtained by reweighting the base surface-area
+distribution, so the sampling pattern changes while the underlying CFD
+solution remains fixed.  We evaluate at point counts
 $N\in\{64,128,256,512,1024\}$ with three independent resampling replicas per
 setting, and use a dense 2\,048-cell reference view to measure same-object
 prediction drift.
@@ -623,12 +652,14 @@ with the AirfRANS reference API.
 We use the official AirfRANS ``full'' split as prepared by the benchmark
 preprocessing pipeline, yielding 720 training, 80 validation, and 200 test
 simulations.  Each model is trained for 25\,000 steps on 256 uniformly sampled
-airfoil boundary points and then evaluated under seven observation modes:
-\emph{uniform}, \emph{leading edge}, \emph{trailing edge},
-\emph{upper surface}, \emph{lower surface}, \emph{clustered}, and
-\emph{occluded}.  These modes reweight the base boundary-length distribution,
-so the observed subset shifts around the same underlying airfoil solution
-while the reference coefficients remain fixed.  We test at point counts
+airfoil boundary points and then evaluated under the seven AirfRANS sampling
+strategies defined above: one uniform strategy, four region-biased strategies
+(\emph{leading edge}, \emph{trailing edge}, \emph{upper surface}, and
+\emph{lower surface}), one clustered strategy (\emph{clustered}), and one
+partial-view strategy (\emph{occluded}).  These strategies reweight the base
+boundary-length distribution, so the observed subset shifts around the same
+underlying airfoil solution while the reference coefficients remain fixed.
+We test at point counts
 $N\in\{64,128,256,512,1024\}$ and use a dense 2\,048-point reference view for
 same-simulation prediction drift.
 
