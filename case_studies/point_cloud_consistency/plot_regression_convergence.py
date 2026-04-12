@@ -12,9 +12,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import NullFormatter
 
-COLORS = {"uniform": "#d95f02", "geometry_aware": "#1b9e77", "pointnext": "#7570b3"}
-LABELS = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder", "pointnext": "PointNeXt"}
-MARKERS = {"uniform": "s", "geometry_aware": "o", "pointnext": "^"}
+COLORS = {
+    "uniform": "#d95f02",
+    "geometry_aware": "#1b9e77",
+    "voronoi": "#1f78b4",
+    "pointnext": "#7570b3",
+}
+LABELS = {
+    "uniform": "Set-Key (Unif)",
+    "geometry_aware": "Set-Key (kNN)",
+    "voronoi": "Set-Value (Vor)",
+    "pointnext": "PointNeXt",
+}
+MARKERS = {"uniform": "s", "geometry_aware": "o", "voronoi": "D", "pointnext": "^"}
 
 
 def load_metrics(path: Path) -> dict:
@@ -65,7 +75,11 @@ def plot_metrics(metrics: dict, output_dir: Path, *, pointnext_metrics: dict | N
 
     pointnext_metrics = pointnext_metrics or _load_optional_pointnext_metrics(output_dir)
     point_counts = np.array([int(v) for v in metrics["point_counts"]], dtype=float)
-    model_sources: list[tuple[str, dict]] = [(name, metrics) for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
+    model_sources: list[tuple[str, dict]] = [
+        (name, metrics)
+        for name in ["uniform", "geometry_aware", "voronoi"]
+        if name in metrics["models"]
+    ]
     if pointnext_metrics is not None:
         pointnext_counts = np.array([int(v) for v in pointnext_metrics["point_counts"]], dtype=float)
         if np.array_equal(point_counts, pointnext_counts):

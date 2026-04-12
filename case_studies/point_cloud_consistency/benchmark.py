@@ -30,6 +30,10 @@ def _uses_oracle_density(model: torch.nn.Module) -> bool:
     return str(getattr(model, "weight_mode", "")).lower() == "oracle_density"
 
 
+def _has_trainable_parameters(model: torch.nn.Module) -> bool:
+    return any(param.requires_grad and param.numel() > 0 for param in model.parameters())
+
+
 def train_classifier(
     model: PointCloudSetClassifier,
     dataset: SyntheticSurfaceSignalDataset,
@@ -137,6 +141,15 @@ def train_regressor(
             batch_size=batch_size, max_objects=val_objects,
         )
         return summary["aggregate"]["avg_nonuniform_rmse"][str(train_points)]
+
+    if not _has_trainable_parameters(model):
+        val_score = float(eval_fn(model))
+        return {
+            "seed": seed,
+            "best_val_score": val_score,
+            "history_tail": [{"step": 0, "val_score": val_score}],
+            "optimization_skipped": True,
+        }
 
     return train_loop(
         model, run_name=run_name, device=device, steps=steps, lr=lr,

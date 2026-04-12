@@ -17,13 +17,15 @@ DEFAULT_METRICS_PATHS = {
     "ahmed_pointnext": REPO_ROOT / "results" / "ahmedml_surface_forces_pointnext_run" / "metrics.json",
     "airfrans_pointnext": REPO_ROOT / "results" / "airfrans_field_prediction_pointnext_run" / "metrics.json",
 }
-MODEL_ORDER = [
+SET_ENCODER_MODEL_ORDER = [
     "uniform",
     "geometry_aware",
+    "voronoi",
 ]
 MODEL_LABELS = {
-    "uniform": "Uniform",
-    "geometry_aware": "kNN",
+    "uniform": "Set-Key (Unif)",
+    "geometry_aware": "Set-Key (kNN)",
+    "voronoi": "Set-Value (Vor)",
 }
 POINTNEXT_ROW = "pointnext_uniform"
 POINTNEXT_LABEL = "PointNeXt"
@@ -161,7 +163,7 @@ def avg_nonuniform_from_per_setting(
 def first_available_model(payload: dict[str, Any] | None) -> str | None:
     if payload is None:
         return None
-    for model_name in MODEL_ORDER:
+    for model_name in SET_ENCODER_MODEL_ORDER:
         if model_name in payload.get("models", {}):
             return model_name
     models = list(payload.get("models", {}).keys())
@@ -216,8 +218,22 @@ def summarize_main_task(payload: dict[str, Any] | None, task_kind: str, model_na
         "consistency": float(aggregate["avg_nonuniform_prediction_drift"][point_key]),
     }
 
-def regression_table_rows(pointnext_payload: dict[str, Any] | None = None) -> list[tuple[str, str, dict[str, Any] | None]]:
-    rows = [(model_name, MODEL_LABELS[model_name], None) for model_name in MODEL_ORDER]
+def _ordered_present_models(payloads: list[dict[str, Any] | None]) -> list[str]:
+    present = {
+        model_name
+        for payload in payloads
+        if payload is not None
+        for model_name in payload.get("models", {}).keys()
+    }
+    return [model_name for model_name in SET_ENCODER_MODEL_ORDER if model_name in present]
+
+
+def regression_table_rows(
+    payloads: list[dict[str, Any] | None],
+    *,
+    pointnext_payload: dict[str, Any] | None = None,
+) -> list[tuple[str, str, dict[str, Any] | None]]:
+    rows = [(model_name, MODEL_LABELS[model_name], None) for model_name in _ordered_present_models(payloads)]
     if pointnext_payload is not None:
         rows.append((POINTNEXT_ROW, POINTNEXT_LABEL, pointnext_payload))
     return rows
@@ -228,7 +244,8 @@ def render_main_results_table(
     pointnext_payloads: dict[str, dict[str, Any] | None],
 ) -> str:
     row_specs = regression_table_rows(
-        pointnext_payload=pointnext_payloads.get("regression") or pointnext_payloads.get("ahmed")
+        [task_payloads.get(spec.key) for spec in TASK_SPECS],
+        pointnext_payload=pointnext_payloads.get("regression") or pointnext_payloads.get("ahmed"),
     )
     rows: dict[str, list[tuple[str, float | None]]] = {row_name: [] for row_name, _label, _payload in row_specs}
     header_cells = []
@@ -306,7 +323,9 @@ def render_main_results_table(
             r"training resolution, ``Worst RMSE'' denotes the largest RMSE across sampling modes at that same "
             r"resolution, and ``Pred.\ Drift'' denotes the mean absolute difference between a "
             r"prediction from a sparse or shifted view and the dense-reference prediction for the same object, averaged "
-            r"over target components and over nonuniform sampling modes.}"
+            r"over target components and over nonuniform sampling modes. The Set-Value (Vor) row is reported only for "
+            r"the synthetic sphere benchmark, where exact spherical Voronoi cell areas under the target measure are "
+            r"available.}"
         ),
         r"\label{tab:main-results}",
         r"\end{table*}",
@@ -319,7 +338,7 @@ def classification_table_rows(
     payload: dict[str, Any],
     pointnext_payload: dict[str, Any] | None = None,
 ) -> list[tuple[str, str, dict[str, Any] | None]]:
-    rows = [(model_name, MODEL_LABELS[model_name], payload) for model_name in MODEL_ORDER]
+    rows = [(model_name, MODEL_LABELS[model_name], payload) for model_name in _ordered_present_models([payload])]
     if pointnext_payload is not None:
         rows.append((POINTNEXT_ROW, POINTNEXT_LABEL, pointnext_payload))
     return rows
@@ -370,7 +389,11 @@ def render_sampling_breakdown_table(
 
     columns = modes + ["Avg. Nonunif.", "Worst"]
     column_headers = [_format_mode_header(mode) for mode in modes] + ["Avg. Nonunif.", "Worst"]
-    rows = regression_table_rows(pointnext_payload) if kind != "classification" else classification_table_rows(payload, pointnext_payload)
+    rows = (
+        regression_table_rows([payload], pointnext_payload=pointnext_payload)
+        if kind != "classification"
+        else classification_table_rows(payload, pointnext_payload)
+    )
 
     row_values: dict[str, list[float | None]] = {}
     for row_name, _row_label, row_payload in rows:
@@ -456,7 +479,11 @@ def render_resolution_table(
         direction_primary = False
         direction_secondary = False
 
-    rows = regression_table_rows(pointnext_payload) if kind != "classification" else classification_table_rows(payload, pointnext_payload)
+    rows = (
+        regression_table_rows([payload], pointnext_payload=pointnext_payload)
+        if kind != "classification"
+        else classification_table_rows(payload, pointnext_payload)
+    )
 
     primary_rows: dict[str, list[float | None]] = {}
     secondary_rows: dict[str, list[float | None]] = {}

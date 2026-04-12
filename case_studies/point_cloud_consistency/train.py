@@ -27,7 +27,11 @@ def parse_args():
     parser.add_argument("--train_points", type=int, default=128)
     parser.add_argument("--train_sampling_mode", default="uniform")
     parser.add_argument("--backbone", choices=["set_encoder", "pointnext"], default="set_encoder")
-    parser.add_argument("--weight_mode", choices=["uniform", "knn", "oracle_density"], default="uniform")
+    parser.add_argument(
+        "--weight_mode",
+        choices=["uniform", "knn", "oracle_density", "voronoi", "voronoi_oracle"],
+        default="uniform",
+    )
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)

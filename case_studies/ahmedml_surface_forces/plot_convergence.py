@@ -13,7 +13,7 @@ import numpy as np
 from matplotlib.ticker import NullFormatter
 
 COLORS = {"uniform": "#d95f02", "geometry_aware": "#1b9e77", "pointnext": "#7570b3"}
-LABELS = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder", "pointnext": "PointNeXt"}
+LABELS = {"uniform": "Set-Key (Unif)", "geometry_aware": "Set-Key (kNN)", "pointnext": "PointNeXt"}
 MARKERS = {"uniform": "s", "geometry_aware": "o", "pointnext": "^"}
 
 

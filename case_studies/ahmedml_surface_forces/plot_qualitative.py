@@ -23,8 +23,8 @@ from case_studies.ahmedml_surface_forces.dataset import (
 
 TARGET_AXES = {"Cd": 0, "Cs": 1, "Cl": 2}
 MODEL_STYLES = {
-    "uniform": {"label": "Uniform", "color": "#d95f02"},
-    "geometry_aware": {"label": "kNN", "color": "#1b9e77"},
+    "uniform": {"label": "Set-Key (Unif)", "color": "#d95f02"},
+    "geometry_aware": {"label": "Set-Key (kNN)", "color": "#1b9e77"},
     "pointnext": {"label": "PointNeXt", "color": "#7570b3"},
 }
 

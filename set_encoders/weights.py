@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 
 
@@ -189,3 +191,59 @@ def infer_knn_density_weights(
 
     return weights
 
+
+def infer_spherical_voronoi_weights(
+    xs: torch.Tensor,
+    sensor_mask: torch.Tensor | None = None,
+    *,
+    normalize: bool = True,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """
+    Estimate measure-aware weights from exact spherical Voronoi cell areas.
+
+    This is an oracle geometric rule for samples on (or projected to) the unit
+    sphere. Each point receives the area of its spherical Voronoi cell under
+    the uniform surface measure, optionally normalized to sum to one.
+    """
+    if xs.dim() != 3:
+        raise ValueError(f"xs must be 3D (B, N, dx), got {xs.shape=}")
+    if xs.shape[-1] != 3:
+        raise ValueError(f"spherical Voronoi weights require 3D coordinates, got {xs.shape=}")
+
+    try:
+        from scipy.spatial import SphericalVoronoi
+    except ImportError as exc:  # pragma: no cover - exercised in real envs
+        raise ImportError(
+            "infer_spherical_voronoi_weights requires scipy. Install it with `pip install scipy`."
+        ) from exc
+
+    batch_size, n_sensors, _ = xs.shape
+    device, dtype = xs.device, xs.dtype
+    mask = _coerce_mask(xs, sensor_mask)
+    weights = torch.zeros((batch_size, n_sensors), device=device, dtype=dtype)
+
+    for b in range(batch_size):
+        if mask is None:
+            idx_valid = torch.arange(n_sensors, device=device)
+        else:
+            idx_valid = torch.nonzero(mask[b], as_tuple=False).squeeze(-1)
+
+        n_valid = int(idx_valid.numel())
+        if n_valid == 0:
+            continue
+        if n_valid < 4:
+            base = 1.0 / float(n_valid) if normalize else (4.0 * math.pi / float(n_valid))
+            weights[b, idx_valid] = torch.full((n_valid,), base, device=device, dtype=dtype)
+            continue
+
+        points = xs[b, idx_valid].detach().to(device="cpu", dtype=torch.float64)
+        norms = points.norm(dim=-1, keepdim=True).clamp_min(float(eps))
+        points_unit = (points / norms).numpy()
+        voronoi = SphericalVoronoi(points_unit, radius=1.0, center=[0.0, 0.0, 0.0])
+        areas = torch.as_tensor(voronoi.calculate_areas(), device=device, dtype=dtype).clamp_min(float(eps))
+        if normalize:
+            areas = areas / areas.sum().clamp_min(float(eps))
+        weights[b, idx_valid] = areas
+
+    return weights

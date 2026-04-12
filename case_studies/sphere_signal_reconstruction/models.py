@@ -6,8 +6,14 @@ import torch.nn as nn
 from set_encoders import (
     SetEncoderOperator,
     infer_knn_density_weights,
+    infer_spherical_voronoi_weights,
     infer_uniform_weights,
 )
+
+
+def _canonical_weight_mode(weight_mode: str) -> str:
+    normalized = str(weight_mode).lower()
+    return "voronoi" if normalized == "voronoi_oracle" else normalized
 
 
 class SphereSignalReconstructor(nn.Module):
@@ -31,13 +37,15 @@ class SphereSignalReconstructor(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.weight_mode = weight_mode.lower()
+        self.weight_mode = _canonical_weight_mode(weight_mode)
         self.knn_k = int(knn_k)
         self.intrinsic_dim = int(intrinsic_dim)
         self.value_mode = value_mode.lower()
 
-        if self.weight_mode not in {"uniform", "knn", "oracle_density"}:
-            raise ValueError(f"weight_mode must be 'uniform', 'knn', or 'oracle_density', got {weight_mode}")
+        if self.weight_mode not in {"uniform", "knn", "oracle_density", "voronoi"}:
+            raise ValueError(
+                f"weight_mode must be 'uniform', 'knn', 'oracle_density', or 'voronoi', got {weight_mode}"
+            )
 
         self.operator = SetEncoderOperator(
             input_size_src=3,
@@ -73,6 +81,12 @@ class SphereSignalReconstructor(nn.Module):
             return infer_uniform_weights(obs_coords, point_mask)
         if self.weight_mode == "oracle_density":
             raise ValueError("oracle_density weight_mode requires explicit sensor_weights from the dataset.")
+        if self.weight_mode == "voronoi":
+            return infer_spherical_voronoi_weights(
+                obs_coords,
+                sensor_mask=point_mask,
+                normalize=True,
+            ).to(dtype=obs_coords.dtype)
 
         return infer_knn_density_weights(
             obs_coords,

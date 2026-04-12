@@ -252,7 +252,7 @@ def plot_qualitative(
         norm=signal_norm,
         title=f"Shifted input ({shift_mode}, $M$={fixed_points})",
     )
-    title_map = {"uniform": "Uniform prediction", "geometry_aware": "kNN density prediction"}
+    title_map = {"uniform": "Set-Key (Unif) prediction", "geometry_aware": "Set-Key (kNN) prediction"}
     for col, model_name in enumerate(model_order, start=2):
         ax = fig.add_subplot(gs[0, col], projection="3d")
         _render_surface(
@@ -277,7 +277,7 @@ def plot_qualitative(
         cmap=signal_cmap,
         norm=signal_norm,
     )
-    map_title_map = {"uniform": "Uniform map", "geometry_aware": "kNN density map"}
+    map_title_map = {"uniform": "Set-Key (Unif) map", "geometry_aware": "Set-Key (kNN) map"}
     for col, model_name in enumerate(model_order, start=2):
         ax = fig.add_subplot(gs[1, col])
         _imshow_map(ax, pred_grids[model_name], title=map_title_map[model_name], cmap=signal_cmap, norm=signal_norm)
@@ -300,7 +300,7 @@ def plot_qualitative(
         cmap=signal_cmap,
         norm=signal_norm,
     )
-    err_title_map = {"uniform": "Uniform absolute error", "geometry_aware": "kNN density absolute error"}
+    err_title_map = {"uniform": "Set-Key (Unif) absolute error", "geometry_aware": "Set-Key (kNN) absolute error"}
     for col, model_name in enumerate(model_order, start=2):
         ax = fig.add_subplot(gs[2, col])
         _imshow_map(ax, err_grids[model_name], title=err_title_map[model_name], cmap=error_cmap, norm=error_norm)

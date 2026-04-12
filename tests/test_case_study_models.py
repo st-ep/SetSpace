@@ -20,6 +20,7 @@ from case_studies.point_cloud_consistency.benchmark import (
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
 from case_studies.point_cloud_consistency.models import (
     PointCloudMeanRegressor,
+    PointCloudWeightedMeanRegressor,
     build_point_cloud_classifier,
     build_point_cloud_regressor,
 )
@@ -31,7 +32,7 @@ from case_studies.sphere_signal_reconstruction.dataset import SphereSignalDatase
 from case_studies.sphere_signal_reconstruction.models import SphereSignalReconstructor
 
 
-POINT_WEIGHT_MODES = ["uniform", "knn", "oracle_density"]
+POINT_WEIGHT_MODES = ["uniform", "knn", "oracle_density", "voronoi"]
 
 
 def _point_model_config(weight_mode: str) -> dict:
@@ -154,6 +155,44 @@ class CaseStudyModelTests(unittest.TestCase):
                 )
                 self.assertEqual(preds.shape, (2,))
                 preds.sum().backward()
+
+    def test_weighted_mean_regressor_roundtrip(self):
+        dataset = SyntheticSurfaceSignalDataset(n_train=4, n_val=2, n_test=2, seed=0, label_reference_points=64)
+        coords = torch.randn(2, 8, 3)
+        values = torch.randn(2, 8, 1)
+        point_weights = torch.tensor(
+            [[0.10, 0.15, 0.05, 0.20, 0.10, 0.10, 0.15, 0.15], [0.20, 0.10, 0.10, 0.05, 0.15, 0.10, 0.20, 0.10]],
+            dtype=torch.float32,
+        )
+
+        model = PointCloudWeightedMeanRegressor(value_input_dim=1, weight_mode="oracle_density", knn_k=4, intrinsic_dim=2)
+        expected = (point_weights * values.squeeze(-1)).sum(dim=1) / point_weights.sum(dim=1)
+        preds = model(coords, values, point_weights=point_weights)
+        self.assertTrue(torch.allclose(preds, expected))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            checkpoint_dir = Path(tmp_dir) / "point_weighted_mean"
+            save_point_artifacts(
+                checkpoint_dir,
+                model=model,
+                dataset=dataset,
+                model_config={
+                    "task": "regression",
+                    "backbone": "weighted_mean",
+                    "output_dim": 1,
+                    "value_input_dim": 1,
+                    "activation_fn": "gelu",
+                    "weight_mode": "oracle_density",
+                    "knn_k": 4,
+                    "intrinsic_dim": 2,
+                },
+                training_config={},
+                training_summary={},
+            )
+            loaded_model, _cfg = load_point_model_checkpoint(checkpoint_dir, torch.device("cpu"))
+            with torch.no_grad():
+                reloaded = loaded_model(coords, values, point_weights=point_weights)
+            self.assertTrue(torch.allclose(preds, reloaded))
 
     def test_pointnext_regressor_roundtrip(self):
         dataset = SyntheticSurfaceSignalDataset(n_train=4, n_val=2, n_test=2, seed=0, label_reference_points=64)

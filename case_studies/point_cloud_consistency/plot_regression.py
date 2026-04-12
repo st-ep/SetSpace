@@ -8,6 +8,17 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+COLORS = {
+    "uniform": "#d95f02",
+    "geometry_aware": "#1b9e77",
+    "voronoi": "#1f78b4",
+}
+LABELS = {
+    "uniform": "Set-Key (Unif)",
+    "geometry_aware": "Set-Key (kNN)",
+    "voronoi": "Set-Value (Vor)",
+}
+
 
 def load_metrics(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
@@ -21,9 +32,11 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
     sampling_modes = metrics["sampling_modes"]
     fixed_points_key = str(fixed_points if fixed_points in point_counts else point_counts[0])
 
-    colors = {"uniform": "#d95f02", "geometry_aware": "#1b9e77"}
-    labels = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder"}
-    model_order = [name for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
+    model_order = [
+        name
+        for name in ["uniform", "geometry_aware", "voronoi"]
+        if name in metrics["models"]
+    ]
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.8))
 
@@ -31,7 +44,7 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
     for model_name in model_order:
         agg = metrics["models"][model_name]["metrics"]["aggregate"]
         y = [agg["worst_case_rmse"][str(p)] for p in point_counts]
-        ax.plot(point_counts, y, marker="o", lw=2.2, ms=6, color=colors[model_name], label=labels[model_name])
+        ax.plot(point_counts, y, marker="o", lw=2.2, ms=6, color=COLORS[model_name], label=LABELS[model_name])
     ax.set_xlabel("Number of sampled points ($M$)")
     ax.set_ylabel("Worst-case RMSE")
     ax.set_title("(a) Worst-case error under resampling shift")
@@ -42,7 +55,7 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
     for model_name in model_order:
         agg = metrics["models"][model_name]["metrics"]["aggregate"]
         y = [agg["avg_nonuniform_prediction_drift"][str(p)] for p in point_counts]
-        ax.plot(point_counts, y, marker="s", lw=2.2, ms=6, color=colors[model_name], label=labels[model_name])
+        ax.plot(point_counts, y, marker="s", lw=2.2, ms=6, color=COLORS[model_name], label=LABELS[model_name])
     ax.set_xlabel("Number of sampled points ($M$)")
     ax.set_ylabel("Average prediction drift")
     ax.set_title("(b) Same-object prediction drift")
@@ -57,7 +70,7 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
             metrics["models"][model_name]["metrics"]["aggregate"]["rmse_by_count"][fixed_points_key][mode]
             for mode in sampling_modes
         ]
-        ax.bar(x + offset, scores, width=width, color=colors[model_name], label=labels[model_name])
+        ax.bar(x + offset, scores, width=width, color=COLORS[model_name], label=LABELS[model_name])
     ax.set_xticks(x)
     ax.set_xticklabels(sampling_modes, rotation=20)
     ax.set_ylabel("RMSE")

@@ -22,8 +22,8 @@ from case_studies.airfrans_field_prediction.dataset import (
 )
 
 MODEL_STYLES = {
-    "uniform": {"label": "Uniform", "color": "#d95f02"},
-    "geometry_aware": {"label": "kNN", "color": "#1b9e77"},
+    "uniform": {"label": "Set-Key (Unif)", "color": "#d95f02"},
+    "geometry_aware": {"label": "Set-Key (kNN)", "color": "#1b9e77"},
     "pointnext": {"label": "PointNeXt", "color": "#7570b3"},
 }
 

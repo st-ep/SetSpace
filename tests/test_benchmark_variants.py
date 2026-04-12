@@ -158,7 +158,7 @@ class BenchmarkVariantTests(unittest.TestCase):
 
             self.assertEqual(
                 _read_models(output_dir / "metrics.json"),
-                {"uniform", "geometry_aware", "oracle_density"},
+                {"uniform", "geometry_aware", "oracle_density", "voronoi"},
             )
 
     def test_ahmed_benchmark_models(self):
@@ -333,7 +333,7 @@ class BenchmarkVariantTests(unittest.TestCase):
 
             self.assertEqual(
                 _read_models(output_dir / "metrics.json"),
-                {"uniform", "geometry_aware", "oracle_density"},
+                {"uniform", "geometry_aware", "oracle_density", "voronoi"},
             )
 
     def test_point_cloud_regression_pointnext_runs_pointnext_only(self):
@@ -462,7 +462,7 @@ class BenchmarkVariantTests(unittest.TestCase):
 
             self.assertEqual(
                 _read_models(output_dir / "metrics.json"),
-                {"uniform", "geometry_aware", "oracle_density"},
+                {"uniform", "geometry_aware", "oracle_density", "voronoi_oracle"},
             )
 
     def test_airfrans_benchmark_models(self):

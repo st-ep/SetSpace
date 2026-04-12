@@ -390,9 +390,13 @@ retraining.  The benchmark suite covers three continuum settings: a controlled
 synthetic surface-functional regression task on~$\mathbb{S}^2$, a real AhmedML
 surface-force regression benchmark, and a derived AirfRANS airfoil-force
 regression benchmark.  Within the Set-Key family we compare two matched models
-that differ only in the pooling weights: a \textbf{uniform} encoder with
-standard additive pooling and a \textbf{$k$-NN density} encoder with
-geometry-aware weighting ($k{=}8$).  All models are trained on uniformly
+that differ only in the pooling weights: \textbf{Set-Key (Unif)} with standard
+additive pooling and \textbf{Set-Key (kNN)} with geometry-aware weighting
+($k{=}8$).  On the synthetic sphere benchmark, where the target measure is
+known exactly, we additionally report \textbf{Set-Value (Vor)}, which uses exact
+spherical Voronoi cell areas under the uniform surface measure and replaces
+the learned Set-Key aggregation with a normalized Voronoi-weighted average of
+the observed scalar values.  All learned models are trained on uniformly
 sampled observations and then evaluated under same-object resampling protocols
 that vary both the sampling pattern and the number of observed samples.  We
 report task quality together with \emph{discretization-consistency}
@@ -485,14 +489,19 @@ objects.  The target quantity is the surface average
 $\bar{f}=\int_{\mathbb{S}^2} f\,\mathrm{d}\sigma$, approximated using 4\,096
 uniform reference points.
 
-Both regressors share the same weighted set encoder architecture: 16 learnable
-query tokens, key dimension 64, token dimension 32, hidden dimension 128, and
-a three-layer MLP head.  They differ only in their aggregation
-weights---$1/N$ or $k$-NN density estimates ($k{=}8$, intrinsic
-dimension~$d{=}2$).  Each model is trained for 2\,000 steps on batches of 64
-objects, each observed through 128 uniformly sampled points, using AdamW
-(learning rate~$10^{-3}$, weight decay~$10^{-5}$) with gradient clipping at
-norm~1.
+The learned Set-Key regressors share the same weighted set encoder
+architecture: 16 learnable query tokens, key dimension 64, token dimension 32,
+hidden dimension 128, and a three-layer MLP head.  They differ only in their
+aggregation weights---$1/N$, $k$-NN density estimates ($k{=}8$, intrinsic
+dimension~$d{=}2$), or exact spherical Voronoi cell areas under uniform
+surface measure.  To test how much of this task can be solved by geometry
+alone, we additionally report the parameter-free Set-Value (Vor) baseline, which
+directly computes the normalized Voronoi-weighted average of the observed scalar
+values.
+The learned Set-Key models are trained for 2\,000 steps on
+batches of 64 objects, each observed through 128 uniformly sampled points,
+using AdamW (learning rate~$10^{-3}$, weight decay~$10^{-5}$) with gradient
+clipping at norm~1.
 
 \paragraph{Evaluation protocol.}
 At test time we resample each object under the five sphere sampling strategies
@@ -527,32 +536,37 @@ This synthetic regression task is the controlled case where the quadrature
 interpretation is most directly aligned with the target: the model is asked to
 recover a surface average from irregular samples.  Table~\ref{tab:main-results}
 therefore gives a matched-resolution summary.  At the training resolution,
-$k$-NN weighting lowers in-distribution RMSE from $0.046$ to $0.021$, lowers
-worst-case RMSE under sampling shift from $0.248$ to $0.188$, and reduces
-average nonuniform prediction drift from $0.159$ to $0.087$.  The same trend is
-visible under refinement in Figure~\ref{fig:regression-convergence}: the
-geometry-aware encoder follows a consistently lower error curve and exhibits a
-steeper reduction in same-object prediction drift as the number of observed
-points grows, while PointNeXt serves as a larger-backbone reference rather than
-an explicitly weighted quadrature model.
+\text{Set-Key (kNN)} lowers in-distribution RMSE from $0.046$ to $0.021$,
+lowers worst-case RMSE under sampling shift from $0.248$ to $0.188$, and
+reduces average nonuniform prediction drift from $0.159$ to $0.087$.  With
+exact Voronoi weights, \text{Set-Value (Vor)} reaches $0.012$, $0.137$, and
+$0.059$.  This makes the benchmark interpretation especially clear: once
+exact geometric weights are available, the task is dominated by quadrature
+quality.  The same trend is visible under refinement in
+Figure~\ref{fig:regression-convergence}: \text{Set-Value (Vor)} follows the
+lowest curve, \text{Set-Key (kNN)} remains clearly below
+\text{Set-Key (Unif)}, and PointNeXt serves as a larger-backbone reference
+rather than an
+explicitly weighted quadrature model.
 Figure~\ref{fig:regression-qualitative} shows the same comparison at the
 prediction level for one challenging density shift: under polar sampling at
-$N{=}512$, the $k$-NN encoder produces a noticeably tighter true-versus-predicted
-scatter and a smaller residual cloud than uniform pooling, while the PointNeXt
+$N{=}512$, \text{Set-Value (Vor)} and \text{Set-Key (kNN)} both produce
+noticeably tighter true-versus-predicted scatter and smaller residual clouds
+than \text{Set-Key (Unif)}, while the PointNeXt
 reference remains competitive but more dispersed on this synthetic functional
 estimation task.
 
 \begin{figure*}[ht]
   \centering
   \includegraphics[width=\textwidth]{../results/point_cloud_mean_regression_run/point_cloud_mean_regression_convergence.pdf}
-  \caption{Synthetic mean-regression refinement curves. Average nonuniform RMSE (left), shown here as a smoother refinement diagnostic complementary to the worst-case table metric, and average nonuniform prediction drift (right), defined as the mean absolute change from the dense-reference prediction of the same object, as the number of observed sphere samples increases. Dotted lines show log-log power-law fits.}
+  \caption{Synthetic mean-regression refinement curves. Average nonuniform RMSE (left), shown here as a smoother refinement diagnostic complementary to the worst-case table metric, and average nonuniform prediction drift (right), defined as the mean absolute change from the dense-reference prediction of the same object, as the number of observed sphere samples increases. The synthetic-only Set-Value (Vor) baseline uses exact spherical cell areas, making this benchmark a direct quadrature test once exact geometric weights are available. Dotted lines show log-log power-law fits.}
   \label{fig:regression-convergence}
 \end{figure*}
 
 \begin{figure*}[ht]
   \centering
   \includegraphics[width=\textwidth]{../results/point_cloud_mean_regression_run/point_cloud_mean_regression_prediction.pdf}
-  \caption{Synthetic mean-regression predictions under polar sampling at $N{=}512$. A representative test sphere colored by the ground-truth scalar field with observed samples overlaid (left), true-versus-predicted scatter for the Monte Carlo surface-average target (middle), and residuals relative to that target (right) for uniform pooling, $k$-NN weighting, and PointNeXt.}
+  \caption{Synthetic mean-regression predictions under polar sampling at $N{=}512$. A representative test sphere colored by the ground-truth scalar field with observed samples overlaid (left), true-versus-predicted scatter for the Monte Carlo surface-average target (middle), and residuals relative to that target (right) for Set-Key (Unif), Set-Key (kNN), Set-Value (Vor), and PointNeXt.}
   \label{fig:regression-qualitative}
 \end{figure*}
 
@@ -632,7 +646,7 @@ reference.
 \begin{figure*}[ht]
   \centering
   \includegraphics[width=\textwidth]{../results/ahmedml_surface_forces_run/ahmedml_surface_forces_prediction.pdf}
-  \caption{AhmedML predictions under front-biased sampling at $N{=}1024$. A representative test body with observed cells overlaid (left), and true-vs-predicted scatter for $C_d$ (middle) and $C_l$ (right) comparing the uniform Set-Key variant, the geometry-aware $k$-NN Set-Key variant, and PointNeXt.}
+  \caption{AhmedML predictions under front-biased sampling at $N{=}1024$. A representative test body with observed cells overlaid (left), and true-vs-predicted scatter for $C_d$ (middle) and $C_l$ (right) comparing Set-Key (Unif), Set-Key (kNN), and PointNeXt.}
   \label{fig:ahmed-qualitative}
 \end{figure*}
 
@@ -710,7 +724,7 @@ targets than either uniform pooling or the PointNeXt reference.
 \begin{figure*}[ht]
   \centering
   \includegraphics[width=\textwidth]{../results/airfrans_field_prediction_run/airfrans_force_regression_prediction.png}
-  \caption{AirfRANS predictions under trailing-edge-biased sampling at $N{=}1024$. Left: a representative test airfoil colored by boundary pressure, with the observed boundary samples overlaid. Middle and right: true-versus-predicted scatter plots for $C_d$ and $C_l$ across the full AirfRANS test split, comparing uniform pooling, the geometry-aware $k$-NN encoder, and PointNeXt under the same observation pattern. The diagonal line indicates perfect prediction.}
+  \caption{AirfRANS predictions under trailing-edge-biased sampling at $N{=}1024$. Left: a representative test airfoil colored by boundary pressure, with the observed boundary samples overlaid. Middle and right: true-versus-predicted scatter plots for $C_d$ and $C_l$ across the full AirfRANS test split, comparing Set-Key (Unif), Set-Key (kNN), and PointNeXt under the same observation pattern. The diagonal line indicates perfect prediction.}
   \label{fig:airfrans-prediction}
 \end{figure*}
 

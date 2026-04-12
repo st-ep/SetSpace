@@ -17,8 +17,9 @@ from case_studies.point_cloud_consistency.benchmark import _make_view_seeds, loa
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
 
 MODEL_STYLES = {
-    "uniform": {"label": "Uniform", "color": "#d95f02"},
-    "geometry_aware": {"label": "kNN", "color": "#1b9e77"},
+    "uniform": {"label": "Set-Key (Unif)", "color": "#d95f02"},
+    "geometry_aware": {"label": "Set-Key (kNN)", "color": "#1b9e77"},
+    "voronoi": {"label": "Set-Value (Vor)", "color": "#1f78b4"},
     "pointnext": {"label": "PointNeXt", "color": "#7570b3"},
 }
 
@@ -42,8 +43,17 @@ def _default_sampling_mode(metrics: dict, point_key: str) -> str:
     if not sampling_modes:
         return "uniform"
     uniform_by_mode = metrics["models"]["uniform"]["metrics"]["aggregate"]["rmse_by_count"][point_key]
-    geometry_by_mode = metrics["models"]["geometry_aware"]["metrics"]["aggregate"]["rmse_by_count"][point_key]
-    return max(sampling_modes, key=lambda mode: uniform_by_mode[mode] - geometry_by_mode[mode])
+    comparison_by_mode = [
+        metrics["models"][name]["metrics"]["aggregate"]["rmse_by_count"][point_key]
+        for name in ["geometry_aware", "voronoi"]
+        if name in metrics["models"]
+    ]
+    if not comparison_by_mode:
+        return max(sampling_modes, key=lambda mode: uniform_by_mode[mode])
+    return max(
+        sampling_modes,
+        key=lambda mode: uniform_by_mode[mode] - min(series[mode] for series in comparison_by_mode),
+    )
 
 
 def _load_optional_pointnext_bundle(
@@ -125,7 +135,7 @@ def _predict_split_targets(
 def _select_example_index(
     dataset: SyntheticSurfaceSignalDataset,
     uniform_model: torch.nn.Module,
-    geometry_model: torch.nn.Module,
+    comparison_models: list[torch.nn.Module],
     *,
     device: torch.device,
     n_points: int,
@@ -149,8 +159,11 @@ def _select_example_index(
         values = sampled_values.unsqueeze(0).to(device)
         with torch.no_grad():
             pred_uniform = float(uniform_model(coords, values).cpu().item())
-            pred_geometry = float(geometry_model(coords, values).cpu().item())
-        improvement = abs(pred_uniform - target) - abs(pred_geometry - target)
+            pred_best = min(
+                (float(model(coords, values).cpu().item()) for model in comparison_models),
+                key=lambda pred: abs(pred - target),
+            )
+        improvement = abs(pred_uniform - target) - abs(pred_best - target)
         field_std = float(sampled_values.squeeze(-1).std().item())
         score = improvement + 0.05 * field_std
         if score > best_score:
@@ -288,6 +301,7 @@ def plot_prediction_figure(
     dataset: SyntheticSurfaceSignalDataset | None = None,
     uniform_model: torch.nn.Module | None = None,
     geometry_model: torch.nn.Module | None = None,
+    voronoi_model: torch.nn.Module | None = None,
     device: torch.device | None = None,
     sampling_mode: str | None = None,
     observation_points: int | None = None,
@@ -301,10 +315,17 @@ def plot_prediction_figure(
 
     checkpoint_uniform = Path(metrics["models"]["uniform"]["checkpoint_dir"])
     checkpoint_geometry = Path(metrics["models"]["geometry_aware"]["checkpoint_dir"])
+    checkpoint_voronoi = (
+        Path(metrics["models"]["voronoi"]["checkpoint_dir"])
+        if "voronoi" in metrics["models"]
+        else None
+    )
     if uniform_model is None:
         uniform_model, _ = load_model_checkpoint(checkpoint_uniform, device)
     if geometry_model is None:
         geometry_model, _ = load_model_checkpoint(checkpoint_geometry, device)
+    if voronoi_model is None and checkpoint_voronoi is not None:
+        voronoi_model, _ = load_model_checkpoint(checkpoint_voronoi, device)
     pointnext_metrics, pointnext_dataset, pointnext_model = _load_optional_pointnext_bundle(
         output_dir=output_dir,
         device=device,
@@ -320,7 +341,7 @@ def plot_prediction_figure(
     example_index = _select_example_index(
         dataset,
         uniform_model,
-        geometry_model,
+        [model for model in [geometry_model, voronoi_model] if model is not None],
         device=device,
         n_points=observation_points,
         sampling_mode=sampling_mode,
@@ -374,6 +395,16 @@ def plot_prediction_figure(
         ("uniform", preds_uniform),
         ("geometry_aware", preds_geometry),
     ]
+    if voronoi_model is not None:
+        preds_voronoi, _ = _predict_split_targets(
+            voronoi_model,
+            dataset,
+            split="test",
+            device=device,
+            n_points=observation_points,
+            sampling_mode=sampling_mode,
+        )
+        prediction_series.append(("voronoi", preds_voronoi))
 
     if pointnext_model is not None and pointnext_dataset is not None:
         preds_pointnext, targets_pointnext = _predict_split_targets(

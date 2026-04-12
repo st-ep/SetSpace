@@ -144,6 +144,11 @@ def main():
                 "weight_mode": "oracle_density",
                 "value_mode": args.value_mode,
             },
+            {
+                "name": "voronoi",
+                "weight_mode": "voronoi",
+                "value_mode": args.value_mode,
+            },
         ]
     )
     trained_models = {}

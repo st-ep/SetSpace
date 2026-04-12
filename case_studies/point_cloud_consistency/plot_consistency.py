@@ -22,7 +22,7 @@ def plot_metrics(metrics: dict, output_dir: Path, fixed_points: int = 64) -> Non
     fixed_points_key = str(fixed_points if fixed_points in point_counts else point_counts[0])
 
     colors = {"uniform": "#d95f02", "geometry_aware": "#1b9e77"}
-    labels = {"uniform": "Uniform encoder", "geometry_aware": "kNN density encoder"}
+    labels = {"uniform": "Set-Key (Unif)", "geometry_aware": "Set-Key (kNN)"}
     model_order = [name for name in ["uniform", "geometry_aware"] if name in metrics["models"]]
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.8))

@@ -152,6 +152,12 @@ def main():
                 "weight_mode": "oracle_density",
                 "value_mode": args.value_mode,
             },
+            {
+                "name": "voronoi",
+                "backbone": "weighted_mean",
+                "weight_mode": "voronoi",
+                "value_mode": args.value_mode,
+            },
         ]
     )
 
@@ -160,6 +166,7 @@ def main():
         model_name = spec["name"]
         model_config = {
             **base_model_config,
+            "backbone": spec.get("backbone", args.backbone),
             "weight_mode": spec["weight_mode"],
             "value_mode": spec["value_mode"],
         }
@@ -225,9 +232,10 @@ def main():
 
     metrics_path = output_dir / "metrics.json"
     save_json(metrics_path, payload)
-    plot_metrics(payload, output_dir, fixed_points=min(args.point_counts))
-    plot_convergence_metrics(payload, output_dir)
-    plot_prediction_figure(payload, output_dir, device=device)
+    if args.backbone == "set_encoder":
+        plot_metrics(payload, output_dir, fixed_points=min(args.point_counts))
+        plot_convergence_metrics(payload, output_dir)
+        plot_prediction_figure(payload, output_dir, device=device)
     plot_benchmark_overview(payload, output_dir)
     print(f"Saved regression benchmark outputs to {output_dir}")
     print(f"Metrics JSON: {metrics_path}")

@@ -16,8 +16,8 @@ from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalD
 
 MODEL_ORDER = ("uniform", "geometry_aware")
 MODEL_LABELS = {
-    "uniform": "Uniform encoder",
-    "geometry_aware": "kNN density encoder",
+    "uniform": "Set-Key (Unif)",
+    "geometry_aware": "Set-Key (kNN)",
 }
 MODE_OFFSETS = {
     "uniform": 11,

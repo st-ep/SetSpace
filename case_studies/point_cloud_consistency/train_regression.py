@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 from case_studies.point_cloud_consistency.benchmark import save_training_artifacts, train_regressor
 from case_studies.point_cloud_consistency.common import DEFAULT_EVAL_MODES, set_random_seed
 from case_studies.point_cloud_consistency.dataset import SyntheticSurfaceSignalDataset
-from case_studies.point_cloud_consistency.models import PointCloudMeanRegressor
+from case_studies.point_cloud_consistency.models import build_point_cloud_regressor
 
 
 def parse_args():
@@ -26,7 +26,12 @@ def parse_args():
     parser.add_argument("--label_reference_points", type=int, default=4096)
     parser.add_argument("--train_points", type=int, default=128)
     parser.add_argument("--train_sampling_mode", default="uniform")
-    parser.add_argument("--weight_mode", choices=["uniform", "knn", "oracle_density"], default="uniform")
+    parser.add_argument("--backbone", choices=["set_encoder", "weighted_mean"], default="set_encoder")
+    parser.add_argument(
+        "--weight_mode",
+        choices=["uniform", "knn", "oracle_density", "voronoi", "voronoi_oracle"],
+        default="uniform",
+    )
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -62,6 +67,7 @@ def main():
 
     model_config = {
         "task": "regression",
+        "backbone": args.backbone,
         "value_input_dim": 1,
         "n_tokens": args.n_tokens,
         "token_dim": args.token_dim,
@@ -75,7 +81,10 @@ def main():
         "knn_k": args.knn_k,
         "intrinsic_dim": args.intrinsic_dim,
     }
-    model = PointCloudMeanRegressor(**{k: v for k, v in model_config.items() if k not in {"activation_fn", "task"}})
+    model = build_point_cloud_regressor(
+        activation_fn=torch.nn.GELU,
+        **{k: v for k, v in model_config.items() if k not in {"activation_fn", "task"}},
+    )
 
     training_summary = train_regressor(
         model,

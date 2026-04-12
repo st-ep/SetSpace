@@ -7,8 +7,46 @@ from case_studies.point_cloud_consistency.pointnext import PointNeXtClassifier
 from set_encoders import (
     WeightedSetEncoder,
     infer_knn_density_weights,
+    infer_spherical_voronoi_weights,
     infer_uniform_weights,
 )
+
+
+def _canonical_weight_mode(weight_mode: str) -> str:
+    normalized = str(weight_mode).lower()
+    return "voronoi" if normalized == "voronoi_oracle" else normalized
+
+
+def _infer_point_weights(
+    *,
+    coords: torch.Tensor,
+    weight_mode: str,
+    knn_k: int,
+    intrinsic_dim: int,
+    point_mask: torch.Tensor | None = None,
+    point_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    weight_mode = _canonical_weight_mode(weight_mode)
+    if point_weights is not None:
+        return point_weights.to(device=coords.device, dtype=coords.dtype)
+    if weight_mode == "uniform":
+        return infer_uniform_weights(coords, point_mask)
+    if weight_mode == "oracle_density":
+        raise ValueError("oracle_density weight_mode requires explicit point_weights from the dataset.")
+    if weight_mode == "voronoi":
+        return infer_spherical_voronoi_weights(
+            coords,
+            sensor_mask=point_mask,
+            normalize=True,
+        ).to(dtype=coords.dtype)
+
+    return infer_knn_density_weights(
+        coords,
+        sensor_mask=point_mask,
+        k=knn_k,
+        intrinsic_dim=intrinsic_dim,
+        normalize=True,
+    ).to(dtype=coords.dtype)
 
 
 class PointCloudSetPredictor(nn.Module):
@@ -31,7 +69,7 @@ class PointCloudSetPredictor(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.weight_mode = weight_mode.lower()
+        self.weight_mode = _canonical_weight_mode(weight_mode)
         self.knn_k = int(knn_k)
         self.intrinsic_dim = int(intrinsic_dim)
         self.n_tokens = int(n_tokens)
@@ -40,8 +78,10 @@ class PointCloudSetPredictor(nn.Module):
         self.value_mode = value_mode.lower()
         self.task = "classification" if int(output_dim) > 1 else "regression"
 
-        if self.weight_mode not in ["uniform", "knn", "oracle_density"]:
-            raise ValueError(f"weight_mode must be 'uniform', 'knn', or 'oracle_density', got {weight_mode}")
+        if self.weight_mode not in ["uniform", "knn", "oracle_density", "voronoi"]:
+            raise ValueError(
+                f"weight_mode must be 'uniform', 'knn', 'oracle_density', or 'voronoi', got {weight_mode}"
+            )
 
         self.encoder = WeightedSetEncoder(
             n_tokens=self.n_tokens,
@@ -73,20 +113,14 @@ class PointCloudSetPredictor(nn.Module):
         point_mask: torch.Tensor | None = None,
         point_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if point_weights is not None:
-            return point_weights.to(device=coords.device, dtype=coords.dtype)
-        if self.weight_mode == "uniform":
-            return infer_uniform_weights(coords, point_mask)
-        if self.weight_mode == "oracle_density":
-            raise ValueError("oracle_density weight_mode requires explicit point_weights from the dataset.")
-
-        return infer_knn_density_weights(
-            coords,
-            sensor_mask=point_mask,
-            k=self.knn_k,
+        return _infer_point_weights(
+            coords=coords,
+            weight_mode=self.weight_mode,
+            knn_k=self.knn_k,
             intrinsic_dim=self.intrinsic_dim,
-            normalize=True,
-        ).to(dtype=coords.dtype)
+            point_mask=point_mask,
+            point_weights=point_weights,
+        )
 
     def encode_tokens(
         self,
@@ -147,6 +181,65 @@ class PointCloudMeanRegressor(PointCloudSetPredictor):
             point_mask=point_mask,
             point_weights=point_weights,
         ).squeeze(-1)
+
+
+class PointCloudWeightedMeanRegressor(nn.Module):
+    def __init__(
+        self,
+        *,
+        value_input_dim: int = 1,
+        weight_mode: str = "uniform",
+        knn_k: int = 8,
+        intrinsic_dim: int = 2,
+        eps: float = 1e-8,
+        **_kwargs,
+    ) -> None:
+        super().__init__()
+
+        self.value_input_dim = int(value_input_dim)
+        self.weight_mode = _canonical_weight_mode(weight_mode)
+        self.knn_k = int(knn_k)
+        self.intrinsic_dim = int(intrinsic_dim)
+        self.eps = float(eps)
+        self.task = "regression"
+
+        if self.value_input_dim != 1:
+            raise ValueError(
+                f"PointCloudWeightedMeanRegressor expects value_input_dim=1, got {value_input_dim}."
+            )
+        if self.weight_mode not in ["uniform", "knn", "oracle_density", "voronoi"]:
+            raise ValueError(
+                f"weight_mode must be 'uniform', 'knn', 'oracle_density', or 'voronoi', got {weight_mode}"
+            )
+
+    def _infer_weights(
+        self,
+        coords: torch.Tensor,
+        point_mask: torch.Tensor | None = None,
+        point_weights: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return _infer_point_weights(
+            coords=coords,
+            weight_mode=self.weight_mode,
+            knn_k=self.knn_k,
+            intrinsic_dim=self.intrinsic_dim,
+            point_mask=point_mask,
+            point_weights=point_weights,
+        )
+
+    def forward(
+        self,
+        coords: torch.Tensor,
+        values: torch.Tensor,
+        point_mask: torch.Tensor | None = None,
+        point_weights: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if values.dim() != 3 or values.shape[-1] != 1:
+            raise ValueError(f"values must be shaped (B, N, 1), got {values.shape=}")
+        weights = self._infer_weights(coords, point_mask=point_mask, point_weights=point_weights)
+        weighted_values = weights * values.squeeze(-1)
+        denom = weights.sum(dim=1).clamp_min(self.eps)
+        return weighted_values.sum(dim=1) / denom
 
 
 class PointNeXtRegressor(nn.Module):
@@ -279,6 +372,10 @@ def build_point_cloud_regressor(
             activation_fn=activation_fn,
             **kwargs,
         )
+    if backbone == "weighted_mean":
+        if int(output_dim) != 1:
+            raise ValueError(f"PointCloudWeightedMeanRegressor expects output_dim=1, got {output_dim}.")
+        return PointCloudWeightedMeanRegressor(**kwargs)
     if backbone == "pointnext":
         weight_mode = kwargs.get("weight_mode", "uniform")
         if str(weight_mode).lower() != "uniform":
